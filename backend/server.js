@@ -49,7 +49,10 @@ connectDB();
 // Middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [
+    'https://beacon-nine-delta.vercel.app', // Vercel frontend
+    'http://localhost:5173' // local dev
+  ],
   credentials: true
 }));
 app.use(morgan('dev'));
