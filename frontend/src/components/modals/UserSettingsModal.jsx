@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Camera, Loader2, LogOut } from 'lucide-react';
+import { X, Camera, Loader2, LogOut, Trash2, AlertTriangle } from 'lucide-react';
 import useUIStore from '../../store/uiStore';
 import useAuthStore from '../../store/authStore';
 import api from '../../services/api';
@@ -13,6 +13,9 @@ export default function UserSettingsModal() {
   const [customStatus, setCustomStatus] = useState(user?.customStatus || '');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = async () => {
     setLoading(true);
@@ -38,6 +41,20 @@ export default function UserSettingsModal() {
       toast.error('Avatar upload failed');
     }
     setUploading(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== user?.username) return;
+    setDeleting(true);
+    try {
+      await api.delete('/users/account');
+      toast.success('Account deleted');
+      logout();
+      toggleUserSettings();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete account');
+    }
+    setDeleting(false);
   };
 
   return (
@@ -96,6 +113,52 @@ export default function UserSettingsModal() {
             <button onClick={() => { logout(); toggleUserSettings(); }} className="btn-danger flex items-center gap-2">
               <LogOut size={18} /> Logout
             </button>
+          </div>
+
+          {/* Delete Account */}
+          <div className="border-t border-beacon-border pt-4">
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-red-400 border border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 transition-all"
+              >
+                <Trash2 size={16} /> Delete Account
+              </button>
+            ) : (
+              <div className="space-y-3 bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-red-400">
+                  <AlertTriangle size={16} />
+                  <p className="text-sm font-semibold">This action is permanent and cannot be undone.</p>
+                </div>
+                <p className="text-xs text-text-muted">
+                  Type your username <span className="text-text-primary font-mono font-semibold">{user?.username}</span> to confirm.
+                </p>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  className="input-field w-full"
+                  placeholder={user?.username}
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={deleteConfirmText !== user?.username || deleting}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-all"
+                  >
+                    {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    {deleting ? 'Deleting...' : 'Delete My Account'}
+                  </button>
+                  <button
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-primary border border-beacon-border hover:bg-white/5 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

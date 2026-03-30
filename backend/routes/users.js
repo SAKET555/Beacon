@@ -2,6 +2,7 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const Channel = require('../models/Channel');
+const Server = require('../models/Server');
 
 const router = express.Router();
 
@@ -178,6 +179,34 @@ router.get('/search/:query', auth, async (req, res) => {
     res.json({ users });
   } catch (error) {
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// DELETE /api/users/account - Delete own account
+router.delete('/account', auth, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // Remove user from all servers they're a member of
+    await Server.updateMany(
+      { members: { $elemMatch: { user: userId } } },
+      { $pull: { members: { user: userId } } }
+    );
+
+    // Remove DM channels they participated in
+    await Channel.deleteMany({ type: 'dm', participants: userId });
+
+    // Delete the user document
+    await User.findByIdAndDelete(userId);
+
+    // Notify others of disconnection
+    const io = req.app.get('io');
+    io.emit('presence:changed', { userId, status: 'offline' });
+
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
   }
 });
 
