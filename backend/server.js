@@ -28,6 +28,9 @@ const notificationRoutes = require('./routes/notifications');
 const app = express();
 const server = http.createServer(app);
 
+// Trust Render/Vercel reverse proxy (fixes express-rate-limit X-Forwarded-For error)
+app.set('trust proxy', 1);
+
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
