@@ -206,7 +206,7 @@ export default function MessageInput({ channel, user }) {
           </div>
         )}
 
-        <div className="flex items-end gap-2 px-3 py-2">
+        <div className="flex items-center gap-2 px-3 py-2">
           <div className="flex items-center gap-1 shrink-0">
             <button onClick={open} className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-bg">
               <Plus size={20} />
@@ -220,8 +220,8 @@ export default function MessageInput({ channel, user }) {
             onKeyDown={handleKeyDown}
             placeholder={`Message #${channel?.name || 'channel'}`}
             rows={1}
-            className="flex-1 bg-transparent text-text-primary placeholder-text-muted resize-none focus:outline-none text-sm leading-5 max-h-40 overflow-y-auto"
-            style={{ minHeight: '20px', height: 'auto' }}
+            className="flex-1 bg-transparent text-text-primary placeholder-text-muted resize-none focus:outline-none text-sm leading-5 max-h-40 overflow-y-auto py-1.5"
+            style={{ minHeight: '32px', height: 'auto' }}
             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
           />
 
