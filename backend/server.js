@@ -34,7 +34,7 @@ app.set('trust proxy', 1);
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: true, // Reflects the origin dynamically
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     credentials: true
   }
@@ -49,13 +49,11 @@ connectDB();
 // Middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({
-  origin: [
-    'https://beacon-nine-delta.vercel.app', // Vercel frontend
-    'http://localhost:5173' // local dev
-  ],
+  origin: true, // Reflects the requesting origin (fixes Vercel CORS blocks)
   credentials: true
 }));
 app.use(morgan('dev'));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -77,9 +75,13 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-// Health check
+// Health checks
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/', (req, res) => {
+  res.send('Royal Beacon Backend is running. Live at /api/health');
 });
 
 // Error handling middleware
