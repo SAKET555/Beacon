@@ -71,6 +71,19 @@ const useServerStore = create((set, get) => ({
     }
   },
 
+  updateServer: async (serverId, updates) => {
+    try {
+      const { data } = await api.patch(`/servers/${serverId}`, updates);
+      set(state => ({
+        currentServer: state.currentServer?._id === serverId ? data.server : state.currentServer,
+        servers: state.servers.map(s => (s._id === serverId ? { ...s, ...data.server } : s))
+      }));
+      return { success: true, server: data.server };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
   setCurrentServer: (server) => set({ currentServer: server }),
 }));
 

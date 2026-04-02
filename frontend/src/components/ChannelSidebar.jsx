@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 export default function ChannelSidebar({ server, channels, currentChannel, onSelectChannel, user }) {
   const { toggleCreateChannel, toggleInviteModal, toggleSearchModal,
-    toggleNotifications, toggleUserSettings } = useUIStore();
+    toggleNotifications, toggleUserSettings, toggleServerSettings } = useUIStore();
   const { updateStatus } = useAuthStore();
   const { unreadCount } = useNotificationStore();
   const [showServerMenu, setShowServerMenu] = useState(false);
@@ -40,6 +40,12 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
               <button onClick={() => { toggleCreateChannel(); setShowServerMenu(false); }}
                 className="sidebar-item w-full text-sm">
                 <Plus size={16} /> Create Channel
+              </button>
+            )}
+            {isAdminOrOwner && (
+              <button onClick={() => { toggleServerSettings(); setShowServerMenu(false); }}
+                className="sidebar-item w-full text-sm">
+                <Settings size={16} /> Server Settings
               </button>
             )}
             <button onClick={() => { toggleSearchModal(); setShowServerMenu(false); }}

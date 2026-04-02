@@ -15,6 +15,7 @@ import CreateChannelModal from '../components/modals/CreateChannelModal';
 import InviteModal from '../components/modals/InviteModal';
 import SearchModal from '../components/modals/SearchModal';
 import UserSettingsModal from '../components/modals/UserSettingsModal';
+import ServerSettingsModal from '../components/modals/ServerSettingsModal';
 import { Menu } from 'lucide-react';
 
 export default function MainLayout() {
@@ -24,7 +25,7 @@ export default function MainLayout() {
   const { addMessage, updateMessage, removeMessage, updateReactions } = useMessageStore();
   const { addNotification } = useNotificationStore();
   const { showMemberPanel, showCreateServer, showCreateChannel, showInviteModal,
-    showSearchModal, showUserSettings, mobileSidebarOpen, toggleMobileSidebar } = useUIStore();
+    showSearchModal, showUserSettings, showServerSettings, mobileSidebarOpen, toggleMobileSidebar } = useUIStore();
   const [onlineUsers, setOnlineUsers] = useState({});
   const idleTimerRef = useRef(null);
   const lastStatusRef = useRef(user?.status || 'online');
@@ -225,6 +226,7 @@ export default function MainLayout() {
       {showInviteModal && currentServer && <InviteModal server={currentServer} />}
       {showSearchModal && currentChannel && <SearchModal channelId={currentChannel._id} />}
       {showUserSettings && <UserSettingsModal />}
+      {showServerSettings && currentServer && <ServerSettingsModal server={currentServer} />}
     </div>
   );
 }
