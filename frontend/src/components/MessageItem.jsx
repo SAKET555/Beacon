@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MoreHorizontal, Reply, Pin, Pencil, Trash2, Copy, Smile } from 'lucide-react';
+import { Reply, Pin, Pencil, Trash2, Copy, Smile, MessageSquare, Star } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import useMessageStore from '../store/messageStore';
@@ -10,12 +10,13 @@ import toast from 'react-hot-toast';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '🔥', '👀'];
 
-export default function MessageItem({ message, user, channel, server }) {
+export default function MessageItem({ message, user, channel, server, readBy = [], isLast = false, readOnly = false }) {
   const [showActions, setShowActions] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const { reactToMessage, deleteMessage } = useMessageStore();
+  const { reactToMessage, deleteMessage, toggleStar } = useMessageStore();
   const { togglePin } = useChannelStore();
-  const { setReplyingTo, setEditingMessage, setFilePreview } = useUIStore();
+  const { setReplyingTo, setEditingMessage, setFilePreview, openThread } = useUIStore();
+  const canInteract = !readOnly && !!channel?._id;
 
   if (message.isDeleted) {
     return (
@@ -39,6 +40,7 @@ export default function MessageItem({ message, user, channel, server }) {
   };
 
   const handlePin = async () => {
+    if (!channel?._id) return;
     const result = await togglePin(channel._id, message._id);
     if (result.success) {
       toast.success(result.pinned ? 'Message pinned!' : 'Message unpinned');
@@ -50,9 +52,21 @@ export default function MessageItem({ message, user, channel, server }) {
     toast.success('Message link copied!');
   };
 
+  const handleStar = async () => {
+    const result = await toggleStar(message._id);
+    if (result.success) {
+      toast.success(result.starred ? 'Message starred' : 'Star removed');
+    }
+  };
+
+  const readReceipts = readBy
+    .filter(r => r.user && r.user._id !== message.author?._id)
+    .filter(r => new Date(r.lastRead) >= new Date(message.createdAt));
+
   return (
     <div className="group relative py-1 px-2 my-0.5 rounded-lg message-hover"
-      onMouseEnter={() => setShowActions(true)} onMouseLeave={() => { setShowActions(false); setShowReactionPicker(false); }}>
+      onMouseEnter={() => canInteract && setShowActions(true)}
+      onMouseLeave={() => { setShowActions(false); setShowReactionPicker(false); }}>
 
       {/* Reply reference */}
       {message.replyTo && (
@@ -97,6 +111,15 @@ export default function MessageItem({ message, user, channel, server }) {
             </div>
           )}
 
+          {message.threadCount > 0 && canInteract && (
+            <button
+              onClick={() => openThread(message)}
+              className="mt-1 text-xs text-beacon-accent hover:text-beacon-accent-hover transition-colors"
+            >
+              View thread ({message.threadCount})
+            </button>
+          )}
+
           {/* Attachments */}
           {message.attachments?.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
@@ -125,6 +148,37 @@ export default function MessageItem({ message, user, channel, server }) {
             </div>
           )}
 
+          {message.linkPreviews?.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {message.linkPreviews.map((preview, index) => (
+                <a
+                  key={`${preview.url}-${index}`}
+                  href={preview.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-stretch gap-3 rounded-xl border border-beacon-border bg-beacon-bg hover:border-beacon-accent/50 transition-colors overflow-hidden"
+                >
+                  {preview.image ? (
+                    <img src={preview.image} alt="" className="w-28 h-20 object-cover" />
+                  ) : null}
+                  <div className="p-2 min-w-0">
+                    <p className="text-xs text-text-muted truncate">
+                      {preview.siteName || (() => {
+                        try { return new URL(preview.url).hostname; } catch { return preview.url; }
+                      })()}
+                    </p>
+                    <p className="text-sm font-semibold text-text-primary truncate">
+                      {preview.title || preview.url}
+                    </p>
+                    {preview.description ? (
+                      <p className="text-xs text-text-secondary line-clamp-2">{preview.description}</p>
+                    ) : null}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+
           {/* Reactions */}
           {message.reactions?.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
@@ -144,11 +198,18 @@ export default function MessageItem({ message, user, channel, server }) {
               })}
             </div>
           )}
+
+          {isLast && isOwn && readReceipts.length > 0 && (
+            <div className="mt-1 text-xs text-text-muted">
+              Seen by {readReceipts.slice(0, 3).map(r => r.user?.displayName || r.user?.username).join(', ')}
+              {readReceipts.length > 3 ? ` +${readReceipts.length - 3}` : ''}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Actions toolbar */}
-      {showActions && (
+      {showActions && canInteract && (
         <div className="absolute -top-3 right-2 flex items-center glass rounded-lg p-0.5 shadow-lg border border-beacon-border animate-fade-in">
           {/* Quick reactions */}
           <div className="flex items-center">
@@ -168,12 +229,20 @@ export default function MessageItem({ message, user, channel, server }) {
             className="p-1.5 hover:bg-beacon-hover rounded transition-colors text-text-muted hover:text-text-primary" title="Reply">
             <Reply size={16} />
           </button>
+          <button onClick={() => openThread(message)}
+            className="p-1.5 hover:bg-beacon-hover rounded transition-colors text-text-muted hover:text-text-primary" title="Thread">
+            <MessageSquare size={16} />
+          </button>
           {isOwn && (
             <button onClick={() => setEditingMessage(message)}
               className="p-1.5 hover:bg-beacon-hover rounded transition-colors text-text-muted hover:text-text-primary" title="Edit">
               <Pencil size={16} />
             </button>
           )}
+          <button onClick={handleStar}
+            className="p-1.5 hover:bg-beacon-hover rounded transition-colors text-text-muted hover:text-text-primary" title="Star">
+            <Star size={16} />
+          </button>
           <button onClick={handlePin}
             className="p-1.5 hover:bg-beacon-hover rounded transition-colors text-text-muted hover:text-text-primary" title="Pin">
             <Pin size={16} />

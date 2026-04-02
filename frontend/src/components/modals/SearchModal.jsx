@@ -8,13 +8,21 @@ export default function SearchModal({ channelId }) {
   const { toggleSearchModal } = useUIStore();
   const { searchMessages, searchResults, clearSearch } = useMessageStore();
   const [query, setQuery] = useState('');
+  const [hasFilter, setHasFilter] = useState('');
+  const [before, setBefore] = useState('');
+  const [after, setAfter] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!query.trim()) return;
     setLoading(true);
-    await searchMessages(channelId, query.trim());
+    await searchMessages(channelId, {
+      q: query.trim(),
+      has: hasFilter || undefined,
+      before: before ? new Date(before).toISOString() : undefined,
+      after: after ? new Date(after).toISOString() : undefined
+    });
     setLoading(false);
     // Save to recent searches
     const recent = JSON.parse(localStorage.getItem('beacon_recent_searches') || '[]');
@@ -36,10 +44,23 @@ export default function SearchModal({ channelId }) {
         </div>
 
         <form onSubmit={handleSearch} className="p-4 border-b border-beacon-border shrink-0">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input type="text" value={query} onChange={e => setQuery(e.target.value)}
-              className="input-field w-full pl-9" placeholder="Search messages..." autoFocus />
+          <div className="space-y-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input type="text" value={query} onChange={e => setQuery(e.target.value)}
+                className="input-field w-full pl-9" placeholder="Search messages..." autoFocus />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <select value={hasFilter} onChange={e => setHasFilter(e.target.value)} className="input-field">
+                <option value="">Has: Any</option>
+                <option value="attachment">Has: Attachment</option>
+                <option value="link">Has: Link</option>
+              </select>
+              <input type="date" value={after} onChange={e => setAfter(e.target.value)}
+                className="input-field" placeholder="After" />
+              <input type="date" value={before} onChange={e => setBefore(e.target.value)}
+                className="input-field" placeholder="Before" />
+            </div>
           </div>
         </form>
 

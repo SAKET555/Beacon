@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const auth = require('../middleware/auth');
 const Channel = require('../models/Channel');
+const User = require('../models/User');
 const Server = require('../models/Server');
 const Message = require('../models/Message');
 const AuditLog = require('../models/AuditLog');
@@ -262,9 +263,32 @@ router.post('/:id/read', auth, async (req, res) => {
     }
 
     await channel.save();
+    const io = req.app.get('io');
+    const user = await User.findById(req.userId).select('username displayName avatar');
+    io.to(`channel:${channel._id}`).emit('channel:read', {
+      channelId: channel._id,
+      userId: req.userId,
+      user,
+      lastRead: readEntry ? readEntry.lastRead : channel.readBy[channel.readBy.length - 1].lastRead
+    });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to mark as read' });
+  }
+});
+
+// GET /api/channels/:id/readers - Get read receipts for a channel
+router.get('/:id/readers', auth, async (req, res) => {
+  try {
+    const channel = await Channel.findById(req.params.id)
+      .populate('readBy.user', 'username displayName avatar');
+    if (!channel) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+
+    res.json({ readBy: channel.readBy || [] });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch read receipts' });
   }
 });
 

@@ -33,6 +33,13 @@ const messageSchema = new mongoose.Schema({
     name: { type: String },
     size: { type: Number }
   }],
+  linkPreviews: [{
+    url: { type: String, required: true },
+    title: { type: String, default: '' },
+    description: { type: String, default: '' },
+    image: { type: String, default: '' },
+    siteName: { type: String, default: '' }
+  }],
   reactions: [{
     emoji: { type: String, required: true },
     users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]

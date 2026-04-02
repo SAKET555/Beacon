@@ -53,6 +53,48 @@ const setupSocket = (io) => {
       socket.leave(`channel:${channelId}`);
     });
 
+    // Call signaling
+    socket.on('call:join', ({ channelId }) => {
+      const room = `call:${channelId}`;
+      socket.join(room);
+      socket.to(room).emit('call:user-joined', {
+        userId,
+        user: {
+          username: socket.user.username,
+          displayName: socket.user.displayName,
+          avatar: socket.user.avatar
+        }
+      });
+      socket.data.callRoom = room;
+    });
+
+    socket.on('call:offer', ({ channelId, targetUserId, sdp }) => {
+      const room = `call:${channelId}`;
+      socket.to(room).emit('call:offer', { userId, sdp, targetUserId });
+    });
+
+    socket.on('call:answer', ({ channelId, targetUserId, sdp }) => {
+      const room = `call:${channelId}`;
+      socket.to(room).emit('call:answer', { userId, sdp, targetUserId });
+    });
+
+    socket.on('call:ice', ({ channelId, targetUserId, candidate }) => {
+      const room = `call:${channelId}`;
+      socket.to(room).emit('call:ice', { userId, candidate, targetUserId });
+    });
+
+    socket.on('call:state', ({ channelId, state }) => {
+      const room = `call:${channelId}`;
+      socket.to(room).emit('call:state', { userId, state });
+    });
+
+    socket.on('call:leave', ({ channelId }) => {
+      const room = `call:${channelId}`;
+      socket.leave(room);
+      socket.to(room).emit('call:user-left', { userId });
+      if (socket.data.callRoom === room) socket.data.callRoom = null;
+    });
+
     // Typing indicators
     socket.on('typing:start', ({ channelId }) => {
       socket.to(`channel:${channelId}`).emit('typing:update', {
@@ -86,6 +128,9 @@ const setupSocket = (io) => {
     // Disconnect
     socket.on('disconnect', async () => {
       console.log(`💤 User disconnected: ${socket.user.username}`);
+      if (socket.data.callRoom) {
+        socket.to(socket.data.callRoom).emit('call:user-left', { userId });
+      }
       const userSockets = onlineUsers.get(userId);
       if (userSockets) {
         userSockets.delete(socket.id);

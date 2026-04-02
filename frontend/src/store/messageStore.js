@@ -6,6 +6,8 @@ const useMessageStore = create((set, get) => ({
   hasMore: false,
   loading: false,
   searchResults: [],
+  threadMessages: [],
+  starredMessages: [],
 
   fetchMessages: async (channelId, page = 1) => {
     set({ loading: true });
@@ -26,10 +28,10 @@ const useMessageStore = create((set, get) => ({
     }
   },
 
-  sendMessage: async (channelId, content, attachments = [], replyTo = null, mentions = []) => {
+  sendMessage: async (channelId, content, attachments = [], replyTo = null, mentions = [], scheduledFor = null) => {
     try {
       const { data } = await api.post(`/messages/${channelId}`, {
-        content, attachments, replyTo, mentions
+        content, attachments, replyTo, mentions, scheduledFor
       });
       return { success: true, message: data.message };
     } catch (error) {
@@ -107,13 +109,58 @@ const useMessageStore = create((set, get) => ({
     }));
   },
 
-  searchMessages: async (channelId, query) => {
+  updatePinned: (messageId, isPinned) => {
+    set(state => ({
+      messages: state.messages.map(m =>
+        m._id === messageId ? { ...m, isPinned } : m
+      )
+    }));
+  },
+
+  searchMessages: async (channelId, params) => {
     try {
-      const { data } = await api.get(`/messages/search/${channelId}?q=${encodeURIComponent(query)}`);
+      const filtered = Object.entries(params || {}).reduce((acc, [key, value]) => {
+        if (value === undefined || value === null || value === '') return acc;
+        acc[key] = value;
+        return acc;
+      }, {});
+      const query = new URLSearchParams(filtered).toString();
+      const { data } = await api.get(`/messages/search/${channelId}?${query}`);
       set({ searchResults: data.messages });
       return data.messages;
     } catch (error) {
       return [];
+    }
+  },
+
+  fetchThread: async (messageId) => {
+    try {
+      const { data } = await api.get(`/messages/thread/${messageId}`);
+      set({ threadMessages: data.messages });
+      return data.messages;
+    } catch (error) {
+      return [];
+    }
+  },
+
+  clearThread: () => set({ threadMessages: [] }),
+
+  fetchStarred: async () => {
+    try {
+      const { data } = await api.get('/users/starred');
+      set({ starredMessages: data.messages || [] });
+      return data.messages || [];
+    } catch (error) {
+      return [];
+    }
+  },
+
+  toggleStar: async (messageId) => {
+    try {
+      const { data } = await api.post(`/users/star/${messageId}`);
+      return { success: true, starred: data.starred };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
     }
   },
 

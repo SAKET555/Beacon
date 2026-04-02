@@ -10,6 +10,10 @@ const useUIStore = create((set) => ({
   showNotifications: false,
   showUserSettings: false,
   showPinnedMessages: false,
+  showStarredMessages: false,
+  threadParent: null,
+  callRoom: null,
+  callMode: 'video',
   showFilePreview: null,
   editingMessage: null,
   replyingTo: null,
@@ -25,6 +29,11 @@ const useUIStore = create((set) => ({
   toggleNotifications: () => set(s => ({ showNotifications: !s.showNotifications })),
   toggleUserSettings: () => set(s => ({ showUserSettings: !s.showUserSettings })),
   togglePinnedMessages: () => set(s => ({ showPinnedMessages: !s.showPinnedMessages })),
+  toggleStarredMessages: () => set(s => ({ showStarredMessages: !s.showStarredMessages })),
+  openThread: (message) => set({ threadParent: message }),
+  closeThread: () => set({ threadParent: null }),
+  openCall: (channelId, mode = 'video') => set({ callRoom: channelId, callMode: mode }),
+  closeCall: () => set({ callRoom: null }),
   setFilePreview: (file) => set({ showFilePreview: file }),
   setEditingMessage: (msg) => set({ editingMessage: msg }),
   setReplyingTo: (msg) => set({ replyingTo: msg }),
@@ -33,8 +42,8 @@ const useUIStore = create((set) => ({
   closeAllModals: () => set({
     showServerSettings: false, showCreateServer: false, showCreateChannel: false,
     showInviteModal: false, showSearchModal: false, showNotifications: false,
-    showUserSettings: false, showPinnedMessages: false, showFilePreview: null,
-    editingMessage: null
+    showUserSettings: false, showPinnedMessages: false, showStarredMessages: false,
+    threadParent: null, callRoom: null, showFilePreview: null, editingMessage: null
   }),
 }));
 

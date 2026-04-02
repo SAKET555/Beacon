@@ -14,6 +14,7 @@ dotenv.config();
 const connectDB = require('./config/db');
 const { setupSocket } = require('./socket');
 const { processScheduledMessages } = require('./utils/scheduled');
+const { initWebPush } = require('./utils/push');
 
 // Route imports
 const authRoutes = require('./routes/auth');
@@ -95,6 +96,9 @@ app.use((err, req, res, next) => {
 
 // Setup Socket.IO
 setupSocket(io);
+
+// Setup Web Push
+initWebPush();
 
 // Cron job for scheduled messages - every minute
 cron.schedule('* * * * *', () => {

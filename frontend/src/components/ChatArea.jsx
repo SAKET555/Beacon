@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Hash, Users, Pin, Search, Bell } from 'lucide-react';
+import { Hash, Users, Pin, Search, Star, Phone, Video } from 'lucide-react';
 import useMessageStore from '../store/messageStore';
 import useChannelStore from '../store/channelStore';
 import useUIStore from '../store/uiStore';
@@ -10,8 +10,8 @@ import { shouldShowDivider, formatDateDivider } from '../utils/helpers';
 
 export default function ChatArea({ channel, server, user, onlineUsers }) {
   const { messages, hasMore, loading, fetchMessages, clearMessages } = useMessageStore();
-  const { markAsRead } = useChannelStore();
-  const { toggleMemberPanel, toggleSearchModal, togglePinnedMessages } = useUIStore();
+  const { markAsRead, fetchReadState, readBy } = useChannelStore();
+  const { toggleMemberPanel, toggleSearchModal, togglePinnedMessages, toggleStarredMessages, openCall } = useUIStore();
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
   const [page, setPage] = useState(1);
@@ -25,12 +25,14 @@ export default function ChatArea({ channel, server, user, onlineUsers }) {
       setAutoScroll(true);
       fetchMessages(channel._id, 1);
       markAsRead(channel._id);
+      fetchReadState(channel._id);
     }
   }, [channel?._id]);
 
   useEffect(() => {
     if (autoScroll) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      if (channel?._id) markAsRead(channel._id);
     }
   }, [messages]);
 
@@ -87,9 +89,21 @@ export default function ChatArea({ channel, server, user, onlineUsers }) {
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => openCall(channel?._id, 'audio')}
+            className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
+            <Phone size={18} />
+          </button>
+          <button onClick={() => openCall(channel?._id, 'video')}
+            className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
+            <Video size={18} />
+          </button>
           <button onClick={togglePinnedMessages}
             className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
             <Pin size={18} />
+          </button>
+          <button onClick={toggleStarredMessages}
+            className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
+            <Star size={18} />
           </button>
           <button onClick={toggleSearchModal}
             className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
@@ -145,7 +159,14 @@ export default function ChatArea({ channel, server, user, onlineUsers }) {
                 <div className="flex-1 h-px bg-beacon-border" />
               </div>
             )}
-            <MessageItem message={message} user={user} channel={channel} server={server} />
+            <MessageItem
+              message={message}
+              user={user}
+              channel={channel}
+              server={server}
+              readBy={readBy}
+              isLast={index === messages.length - 1}
+            />
           </div>
         ))}
         <div ref={messagesEndRef} />

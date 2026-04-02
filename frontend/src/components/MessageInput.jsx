@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Plus, Smile, Bold, Italic, Strikethrough, Code, X, Paperclip, Image } from 'lucide-react';
+import { Send, Plus, Smile, Bold, Italic, Strikethrough, Code, X, Paperclip, Image, Clock } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import EmojiPicker from 'emoji-picker-react';
 import useMessageStore from '../store/messageStore';
@@ -15,6 +15,8 @@ export default function MessageInput({ channel, user }) {
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showFormatting, setShowFormatting] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState('');
   const { sendMessage } = useMessageStore();
   const { replyingTo, setReplyingTo, editingMessage, setEditingMessage } = useUIStore();
   const { editMessage } = useMessageStore();
@@ -80,15 +82,18 @@ export default function MessageInput({ channel, user }) {
     const mentionRegex = /@(\w+)/g;
     const mentionedNames = [...trimmed.matchAll(mentionRegex)].map(m => m[1]);
 
+    const scheduleValue = scheduledFor ? new Date(scheduledFor).toISOString() : null;
     const result = await sendMessage(
       channel._id, trimmed, attachments,
-      replyingTo?._id || null, []
+      replyingTo?._id || null, [], scheduleValue
     );
 
     if (result.success) {
       setContent('');
       setAttachments([]);
       setReplyingTo(null);
+      setScheduledFor('');
+      setShowSchedule(false);
       localStorage.removeItem(`draft_${channel._id}`);
     } else {
       toast.error(result.error || 'Failed to send');
@@ -230,6 +235,10 @@ export default function MessageInput({ channel, user }) {
               className={`p-1.5 transition-colors rounded-lg hover:bg-beacon-bg ${showFormatting ? 'text-beacon-accent' : 'text-text-muted hover:text-text-primary'}`}>
               <Bold size={18} />
             </button>
+            <button onClick={() => setShowSchedule(!showSchedule)}
+              className={`p-1.5 transition-colors rounded-lg hover:bg-beacon-bg ${showSchedule ? 'text-beacon-accent' : 'text-text-muted hover:text-text-primary'}`}>
+              <Clock size={18} />
+            </button>
             <div className="relative">
               <button onClick={() => setShowEmoji(!showEmoji)}
                 className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-bg">
@@ -256,6 +265,26 @@ export default function MessageInput({ channel, user }) {
           </div>
         )}
       </div>
+
+      {showSchedule && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
+          <span className="shrink-0">Schedule for:</span>
+          <input
+            type="datetime-local"
+            value={scheduledFor}
+            onChange={e => setScheduledFor(e.target.value)}
+            className="input-field text-xs"
+          />
+          {scheduledFor && (
+            <button
+              onClick={() => setScheduledFor('')}
+              className="text-text-muted hover:text-text-primary"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

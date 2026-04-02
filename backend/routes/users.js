@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const User = require('../models/User');
 const Channel = require('../models/Channel');
 const Server = require('../models/Server');
+const Message = require('../models/Message');
 
 const router = express.Router();
 
@@ -179,6 +180,50 @@ router.get('/search/:query', auth, async (req, res) => {
     res.json({ users });
   } catch (error) {
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// POST /api/users/star/:messageId - Toggle star on a message
+router.post('/star/:messageId', auth, async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.messageId);
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    const user = await User.findById(req.userId);
+    const existingIndex = user.starredMessages.findIndex(
+      id => id.toString() === message._id.toString()
+    );
+
+    let starred = false;
+    if (existingIndex > -1) {
+      user.starredMessages.splice(existingIndex, 1);
+      starred = false;
+    } else {
+      user.starredMessages.push(message._id);
+      starred = true;
+    }
+
+    await user.save();
+    res.json({ starred });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update starred messages' });
+  }
+});
+
+// GET /api/users/starred - Get starred messages
+router.get('/starred', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId)
+      .populate({
+        path: 'starredMessages',
+        populate: { path: 'author', select: 'username displayName avatar' }
+      });
+
+    res.json({ messages: user?.starredMessages || [] });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch starred messages' });
   }
 });
 

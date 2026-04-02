@@ -71,6 +71,10 @@ const userSchema = new mongoose.Schema({
   dmChannels: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Channel'
+  }],
+  starredMessages: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message'
   }]
 }, {
   timestamps: true

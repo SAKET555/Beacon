@@ -16,16 +16,23 @@ import InviteModal from '../components/modals/InviteModal';
 import SearchModal from '../components/modals/SearchModal';
 import UserSettingsModal from '../components/modals/UserSettingsModal';
 import ServerSettingsModal from '../components/modals/ServerSettingsModal';
+import PinnedMessagesModal from '../components/modals/PinnedMessagesModal';
+import StarredMessagesModal from '../components/modals/StarredMessagesModal';
+import ThreadModal from '../components/modals/ThreadModal';
+import FilePreviewModal from '../components/modals/FilePreviewModal';
+import CallModal from '../components/modals/CallModal';
+import { registerPush } from '../services/push';
 import { Menu } from 'lucide-react';
 
 export default function MainLayout() {
   const { initSocket, user, setLocalStatus, updateStatus } = useAuthStore();
   const { fetchServers, servers, currentServer, setCurrentServer, fetchServer } = useServerStore();
-  const { fetchChannels, channels, currentChannel, setCurrentChannel, addChannel, removeChannel } = useChannelStore();
-  const { addMessage, updateMessage, removeMessage, updateReactions } = useMessageStore();
+  const { fetchChannels, channels, currentChannel, setCurrentChannel, addChannel, removeChannel, updateReadState } = useChannelStore();
+  const { addMessage, updateMessage, removeMessage, updateReactions, updatePinned } = useMessageStore();
   const { addNotification } = useNotificationStore();
   const { showMemberPanel, showCreateServer, showCreateChannel, showInviteModal,
-    showSearchModal, showUserSettings, showServerSettings, mobileSidebarOpen, toggleMobileSidebar } = useUIStore();
+    showSearchModal, showUserSettings, showServerSettings, showPinnedMessages,
+    showStarredMessages, threadParent, callRoom, callMode, mobileSidebarOpen, toggleMobileSidebar } = useUIStore();
   const [onlineUsers, setOnlineUsers] = useState({});
   const idleTimerRef = useRef(null);
   const lastStatusRef = useRef(user?.status || 'online');
@@ -37,6 +44,9 @@ export default function MainLayout() {
   useEffect(() => {
     initSocket();
     fetchServers();
+    if (user?._id) {
+      registerPush();
+    }
 
     const socket = getSocket();
     if (!socket) return;
@@ -53,6 +63,7 @@ export default function MainLayout() {
     socket.on('message:edited', ({ message }) => updateMessage(message));
     socket.on('message:deleted', ({ messageId }) => removeMessage(messageId));
     socket.on('message:reacted', ({ messageId, reactions }) => updateReactions(messageId, reactions));
+    socket.on('message:pinned', ({ messageId, isPinned }) => updatePinned(messageId, isPinned));
 
     // Channels
     socket.on('channel:created', ({ channel }) => addChannel(channel));
@@ -60,6 +71,11 @@ export default function MainLayout() {
 
     // Notifications
     socket.on('notification:new', ({ notification }) => addNotification(notification));
+
+    socket.on('channel:read', ({ channelId, userId, user, lastRead }) => {
+      if (currentChannel?._id !== channelId) return;
+      updateReadState({ userId, user, lastRead });
+    });
 
     // Server events
     socket.on('server:kicked', ({ serverId }) => {
@@ -76,9 +92,11 @@ export default function MainLayout() {
       socket.off('message:edited');
       socket.off('message:deleted');
       socket.off('message:reacted');
+      socket.off('message:pinned');
       socket.off('channel:created');
       socket.off('channel:deleted');
       socket.off('notification:new');
+      socket.off('channel:read');
       socket.off('server:kicked');
     };
   }, [user?._id]);
@@ -227,6 +245,17 @@ export default function MainLayout() {
       {showSearchModal && currentChannel && <SearchModal channelId={currentChannel._id} />}
       {showUserSettings && <UserSettingsModal />}
       {showServerSettings && currentServer && <ServerSettingsModal server={currentServer} />}
+      {showPinnedMessages && currentChannel && (
+        <PinnedMessagesModal channel={currentChannel} user={user} server={currentServer} />
+      )}
+      {showStarredMessages && <StarredMessagesModal user={user} />}
+      {threadParent && currentChannel && (
+        <ThreadModal channel={currentChannel} user={user} server={currentServer} />
+      )}
+      {callRoom && currentChannel && (
+        <CallModal channel={currentChannel} user={user} mode={callMode} />
+      )}
+      <FilePreviewModal />
     </div>
   );
 }

@@ -4,6 +4,8 @@ const auth = require('../middleware/auth');
 const Message = require('../models/Message');
 const Channel = require('../models/Channel');
 const Notification = require('../models/Notification');
+const { buildLinkPreviews } = require('../utils/linkPreview');
+const { sendPushToUser } = require('../utils/push');
 const Server = require('../models/Server');
 
 const router = express.Router();
@@ -90,16 +92,27 @@ router.post('/:channelId', auth, [
       return res.status(400).json({ error: 'Message must have content or attachments' });
     }
 
+    const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+    if (scheduledDate && Number.isNaN(scheduledDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid schedule time' });
+    }
+    if (scheduledDate && scheduledDate.getTime() < Date.now() + 1000) {
+      return res.status(400).json({ error: 'Scheduled time must be in the future' });
+    }
+
+    const linkPreviews = await buildLinkPreviews(content || '');
+
     const message = new Message({
       content: content || '',
       author: req.userId,
       channel: channel._id,
       server: channel.server || null,
       attachments: attachments || [],
+      linkPreviews,
       replyTo: replyTo || null,
       mentions: mentions || [],
-      scheduledFor: scheduledFor || null,
-      isScheduled: !!scheduledFor
+      scheduledFor: scheduledDate || null,
+      isScheduled: !!scheduledDate
     });
     await message.save();
 
@@ -108,9 +121,11 @@ router.post('/:channelId', auth, [
       await Message.findByIdAndUpdate(replyTo, { $inc: { threadCount: 1 } });
     }
 
-    // Update channel's lastMessage
-    channel.lastMessage = message._id;
-    await channel.save();
+    // Update channel's lastMessage only for immediate messages
+    if (!message.isScheduled) {
+      channel.lastMessage = message._id;
+      await channel.save();
+    }
 
     // Populate for response
     await message.populate('author', 'username displayName avatar status');
@@ -142,6 +157,11 @@ router.post('/:channelId', auth, [
         const created = await Notification.insertMany(notifications);
         created.forEach(notif => {
           io.to(`user:${notif.user}`).emit('notification:new', { notification: notif });
+          sendPushToUser(notif.user, {
+            title: notif.title,
+            body: notif.body,
+            data: { messageId: message._id, channelId: channel._id, serverId: channel.server }
+          });
         });
       }
 
@@ -160,6 +180,11 @@ router.post('/:channelId', auth, [
             sender: req.userId
           });
           io.to(`user:${parentMsg.author}`).emit('notification:new', { notification: notif });
+          sendPushToUser(parentMsg.author, {
+            title: notif.title,
+            body: notif.body,
+            data: { messageId: message._id, channelId: channel._id, serverId: channel.server }
+          });
         }
       }
     }

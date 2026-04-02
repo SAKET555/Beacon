@@ -5,6 +5,7 @@ const useChannelStore = create((set, get) => ({
   channels: [],
   currentChannel: null,
   pinnedMessages: [],
+  readBy: [],
   loading: false,
 
   fetchChannels: async (serverId) => {
@@ -68,6 +69,29 @@ const useChannelStore = create((set, get) => ({
       console.error('Mark read failed:', error);
     }
   },
+
+  fetchReadState: async (channelId) => {
+    try {
+      const { data } = await api.get(`/channels/${channelId}/readers`);
+      set({ readBy: data.readBy || [] });
+    } catch (error) {
+      console.error('Fetch read receipts failed:', error);
+    }
+  },
+
+  updateReadState: ({ userId, user, lastRead }) => set(state => {
+    const existing = state.readBy.find(r => r.user?._id === userId || r.user === userId);
+    if (existing) {
+      const updated = state.readBy.map(r => {
+        if ((r.user?._id || r.user) === userId) {
+          return { ...r, lastRead, user: r.user && typeof r.user === 'object' ? r.user : user || r.user };
+        }
+        return r;
+      });
+      return { readBy: updated };
+    }
+    return { readBy: [...state.readBy, { user: user || userId, lastRead }] };
+  }),
 
   addChannel: (channel) => set(state => ({ channels: [...state.channels, channel] })),
   removeChannel: (channelId) => set(state => ({
