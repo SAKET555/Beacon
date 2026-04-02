@@ -67,7 +67,7 @@ export default function UserSettingsModal() {
           {/* Avatar */}
           <div className="flex items-center gap-4">
             <div className="relative group">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-beacon-accent to-purple-500 flex items-center justify-center text-white text-2xl font-bold overflow-hidden">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white text-2xl font-bold overflow-hidden">
                 {user?.avatar ? (
                   <img src={user.avatar} alt="" className="w-full h-full object-cover" />
                 ) : (

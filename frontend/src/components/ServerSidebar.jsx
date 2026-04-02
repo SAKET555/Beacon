@@ -9,7 +9,7 @@ export default function ServerSidebar({ servers, currentServer, onSelect }) {
     <div className="w-[72px] h-full bg-beacon-sidebar flex flex-col items-center py-3 gap-2 border-r border-beacon-border overflow-y-auto">
       {/* Home button */}
       <button onClick={() => onSelect(null)}
-        className="w-12 h-12 rounded-2xl bg-gradient-to-br from-beacon-accent to-purple-500 flex items-center justify-center text-white font-extrabold text-lg hover:rounded-xl transition-all duration-300 shadow-lg shadow-beacon-accent/25 mb-1">
+        className="w-12 h-12 rounded-2xl bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white font-extrabold text-lg hover:rounded-xl transition-all duration-300 shadow-lg shadow-beacon-accent/25 mb-1">
         B
       </button>
 

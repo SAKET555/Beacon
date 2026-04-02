@@ -100,7 +100,7 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
       <div className="p-2 border-t border-beacon-border bg-beacon-sidebar">
         <div className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-beacon-hover transition-colors">
           <div className="relative cursor-pointer" onClick={() => setShowStatusMenu(!showStatusMenu)}>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-beacon-accent to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white text-xs font-bold">
               {user?.avatar ? (
                 <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
               ) : (

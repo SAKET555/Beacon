@@ -25,13 +25,13 @@ export default function LoginPage() {
     <div className="min-h-screen bg-beacon-bg flex items-center justify-center p-4">
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-beacon-accent/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-400/10 rounded-full blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-md">
         <div className="glass rounded-2xl p-8 border border-beacon-border shadow-2xl">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-beacon-accent to-purple-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-beacon-accent/25">
+            <div className="w-16 h-16 bg-gradient-to-br from-beacon-accent to-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-beacon-accent/25">
               <span className="text-2xl font-extrabold text-white">B</span>
             </div>
             <h1 className="text-2xl font-bold text-text-primary">Welcome Back</h1>

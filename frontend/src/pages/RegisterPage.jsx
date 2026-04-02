@@ -37,7 +37,7 @@ export default function RegisterPage() {
       <div className="relative w-full max-w-md">
         <div className="glass rounded-2xl p-8 border border-beacon-border shadow-2xl">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-beacon-accent to-purple-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-beacon-accent/25">
+            <div className="w-16 h-16 bg-gradient-to-br from-beacon-accent to-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-beacon-accent/25">
               <span className="text-2xl font-extrabold text-white">B</span>
             </div>
             <h1 className="text-2xl font-bold text-text-primary">Create Account</h1>

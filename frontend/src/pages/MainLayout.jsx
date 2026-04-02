@@ -144,7 +144,7 @@ export default function MainLayout() {
         ) : (
           <div className="flex-1 flex items-center justify-center bg-beacon-chat">
             <div className="text-center animate-fade-in">
-              <div className="w-24 h-24 bg-gradient-to-br from-beacon-accent to-purple-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-beacon-accent/30">
+              <div className="w-24 h-24 bg-gradient-to-br from-beacon-accent to-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-beacon-accent/30">
                 <span className="text-4xl font-extrabold text-white">B</span>
               </div>
               <h2 className="text-2xl font-bold text-text-primary mb-2">Royal Beacon</h2>

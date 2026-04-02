@@ -5,16 +5,16 @@ export default {
     extend: {
       colors: {
         beacon: {
-          bg: '#0f172a',
-          sidebar: '#020617',
-          chat: '#111827',
-          accent: '#6366f1',
-          'accent-hover': '#818cf8',
-          hover: '#1f2937',
-          border: '#1e293b',
-          'border-light': '#374151',
-          surface: '#0f172a',
-          'surface-light': '#1e293b',
+          bg: '#0b1412',
+          sidebar: '#060c0b',
+          chat: '#0e1916',
+          accent: '#22c55e',
+          'accent-hover': '#34d399',
+          hover: '#16241f',
+          border: '#1b2b25',
+          'border-light': '#2a3f37',
+          surface: '#0e1815',
+          'surface-light': '#1a2a24',
         },
         text: {
           primary: '#e5e7eb',
@@ -29,7 +29,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ['Sora', 'system-ui', '-apple-system', 'sans-serif'],
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',

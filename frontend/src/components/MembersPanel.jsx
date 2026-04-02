@@ -4,7 +4,7 @@ import { getStatusColor } from '../utils/helpers';
 const roleIcons = {
   owner: <Crown size={14} className="text-yellow-400" />,
   admin: <ShieldCheck size={14} className="text-red-400" />,
-  moderator: <Shield size={14} className="text-blue-400" />,
+  moderator: <Shield size={14} className="text-emerald-400" />,
   member: null
 };
 
@@ -35,7 +35,7 @@ export default function MembersPanel({ server, onlineUsers }) {
     return (
       <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-beacon-hover transition-colors cursor-pointer group">
         <div className="relative">
-          <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-beacon-accent to-purple-500 flex items-center justify-center text-white text-xs font-bold overflow-hidden ${status === 'offline' ? 'opacity-50' : ''}`}>
+          <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white text-xs font-bold overflow-hidden ${status === 'offline' ? 'opacity-50' : ''}`}>
             {member.user?.avatar ? (
               <img src={member.user.avatar} alt="" className="w-full h-full object-cover" />
             ) : (

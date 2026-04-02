@@ -65,7 +65,7 @@ export default function MessageItem({ message, user, channel, server }) {
 
       <div className="flex gap-3">
         {/* Avatar */}
-        <div className="w-10 h-10 rounded-full shrink-0 bg-gradient-to-br from-beacon-accent to-purple-500 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
+        <div className="w-10 h-10 rounded-full shrink-0 bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
           {message.author?.avatar ? (
             <img src={message.author.avatar} alt="" className="w-full h-full object-cover" />
           ) : (
