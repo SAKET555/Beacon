@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '../services/socket';
 import useAuthStore from '../store/authStore';
 import useServerStore from '../store/serverStore';
@@ -18,7 +18,7 @@ import UserSettingsModal from '../components/modals/UserSettingsModal';
 import { Menu } from 'lucide-react';
 
 export default function MainLayout() {
-  const { initSocket, user } = useAuthStore();
+  const { initSocket, user, setLocalStatus, updateStatus } = useAuthStore();
   const { fetchServers, servers, currentServer, setCurrentServer, fetchServer } = useServerStore();
   const { fetchChannels, channels, currentChannel, setCurrentChannel, addChannel, removeChannel } = useChannelStore();
   const { addMessage, updateMessage, removeMessage, updateReactions } = useMessageStore();
@@ -26,6 +26,12 @@ export default function MainLayout() {
   const { showMemberPanel, showCreateServer, showCreateChannel, showInviteModal,
     showSearchModal, showUserSettings, mobileSidebarOpen, toggleMobileSidebar } = useUIStore();
   const [onlineUsers, setOnlineUsers] = useState({});
+  const idleTimerRef = useRef(null);
+  const lastStatusRef = useRef(user?.status || 'online');
+
+  useEffect(() => {
+    if (user?.status) lastStatusRef.current = user.status;
+  }, [user?.status]);
 
   useEffect(() => {
     initSocket();
@@ -38,6 +44,7 @@ export default function MainLayout() {
     socket.emit('presence:get', (online) => setOnlineUsers(online));
     socket.on('presence:changed', ({ userId, status }) => {
       setOnlineUsers(prev => ({ ...prev, [userId]: status }));
+      if (userId === user?._id) setLocalStatus(status);
     });
 
     // Messages
@@ -73,7 +80,56 @@ export default function MainLayout() {
       socket.off('notification:new');
       socket.off('server:kicked');
     };
-  }, []);
+  }, [user?._id]);
+
+  useEffect(() => {
+    if (!user?._id) return;
+
+    const setStatus = (status) => {
+      if (lastStatusRef.current === 'dnd' && status !== 'dnd') return;
+      if (lastStatusRef.current === status) return;
+      lastStatusRef.current = status;
+      setLocalStatus(status);
+      const socket = getSocket();
+      if (socket?.connected) {
+        socket.emit('presence:update', { status });
+      } else {
+        updateStatus(status);
+      }
+    };
+
+    const resetIdleTimer = () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        if (!document.hidden) setStatus('away');
+      }, 5 * 60 * 1000);
+    };
+
+    const handleActivity = () => {
+      if (!document.hidden) {
+        setStatus('online');
+        resetIdleTimer();
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) setStatus('away');
+      else handleActivity();
+    };
+
+    setStatus('online');
+    resetIdleTimer();
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach(evt => window.addEventListener(evt, handleActivity, { passive: true }));
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [user?._id]);
 
   // When server changes, fetch channels
   useEffect(() => {

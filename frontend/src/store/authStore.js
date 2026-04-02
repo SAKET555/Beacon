@@ -75,6 +75,14 @@ const useAuthStore = create((set, get) => ({
     }
   },
 
+  setLocalStatus: (status) => {
+    const current = get().user;
+    if (!current) return;
+    const updated = { ...current, status };
+    localStorage.setItem('beacon_user', JSON.stringify(updated));
+    set({ user: updated });
+  },
+
   initSocket: () => {
     const token = get().token;
     if (token) connectSocket(token);

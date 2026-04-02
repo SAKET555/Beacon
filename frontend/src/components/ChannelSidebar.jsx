@@ -1,4 +1,4 @@
-import { Hash, Megaphone, Plus, Settings, ChevronDown, UserPlus, Bell, Search, Pin, LogOut } from 'lucide-react';
+import { Hash, Megaphone, Plus, Settings, ChevronDown, UserPlus, Bell, Search, Pin, LogOut, Moon } from 'lucide-react';
 import useUIStore from '../store/uiStore';
 import useAuthStore from '../store/authStore';
 import useNotificationStore from '../store/notificationStore';
@@ -8,10 +8,9 @@ import { useState } from 'react';
 export default function ChannelSidebar({ server, channels, currentChannel, onSelectChannel, user }) {
   const { toggleCreateChannel, toggleInviteModal, toggleSearchModal,
     toggleNotifications, toggleUserSettings } = useUIStore();
-  const { logout, updateStatus } = useAuthStore();
+  const { updateStatus } = useAuthStore();
   const { unreadCount } = useNotificationStore();
   const [showServerMenu, setShowServerMenu] = useState(false);
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   const textChannels = channels.filter(c => c.type === 'text');
   const announcementChannels = channels.filter(c => c.type === 'announcement');
@@ -99,7 +98,7 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
       {/* User panel */}
       <div className="p-2 border-t border-beacon-border bg-beacon-sidebar">
         <div className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-beacon-hover transition-colors">
-          <div className="relative cursor-pointer" onClick={() => setShowStatusMenu(!showStatusMenu)}>
+          <div className="relative">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white text-xs font-bold">
               {user?.avatar ? (
                 <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
@@ -115,6 +114,13 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
             <p className="text-xs text-text-muted truncate">{user?.customStatus || user?.status}</p>
           </div>
           <div className="flex gap-1">
+            <button
+              onClick={() => updateStatus(user?.status === 'dnd' ? 'online' : 'dnd')}
+              className={`p-1.5 transition-colors rounded-lg hover:bg-beacon-hover ${user?.status === 'dnd' ? 'text-status-dnd' : 'text-text-muted hover:text-text-primary'}`}
+              aria-label="Toggle Do Not Disturb"
+            >
+              <Moon size={16} />
+            </button>
             <button onClick={toggleNotifications}
               className="relative p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
               <Bell size={16} />
@@ -129,18 +135,6 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
           </div>
         </div>
 
-        {/* Status menu */}
-        {showStatusMenu && (
-          <div className="absolute bottom-16 left-2 glass rounded-xl p-1.5 z-50 shadow-xl border border-beacon-border animate-slide-up w-48">
-            {['online', 'away', 'dnd', 'offline'].map(status => (
-              <button key={status} onClick={() => { updateStatus(status); setShowStatusMenu(false); }}
-                className="sidebar-item w-full text-sm capitalize">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getStatusColor(status) }} />
-                {status === 'dnd' ? 'Do Not Disturb' : status}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
