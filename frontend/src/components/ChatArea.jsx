@@ -77,7 +77,7 @@ export default function ChatArea({ channel, server, user, onlineUsers }) {
   return (
     <div className="flex-1 flex flex-col bg-beacon-chat min-w-0">
       {/* Channel header */}
-      <div className="h-12 min-h-[48px] px-4 flex items-center justify-between border-b border-beacon-border bg-beacon-chat/80 backdrop-blur-sm">
+      <div className="min-h-[48px] px-3 sm:px-4 py-2 sm:py-0 flex items-center justify-between border-b border-beacon-border bg-beacon-chat/80 backdrop-blur-sm">
         <div className="flex items-center gap-2 min-w-0">
           <Hash size={20} className="text-text-muted shrink-0" />
           <h3 className="font-semibold text-text-primary truncate">{channel?.name}</h3>
@@ -88,7 +88,7 @@ export default function ChatArea({ channel, server, user, onlineUsers }) {
             </>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 overflow-x-auto max-w-[60%] sm:max-w-none">
           <button onClick={() => openCall(channel?._id, 'audio')}
             className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-beacon-hover">
             <Phone size={18} />

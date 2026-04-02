@@ -267,13 +267,13 @@ export default function MessageInput({ channel, user }) {
       </div>
 
       {showSchedule && (
-        <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
+        <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-text-muted">
           <span className="shrink-0">Schedule for:</span>
           <input
             type="datetime-local"
             value={scheduledFor}
             onChange={e => setScheduledFor(e.target.value)}
-            className="input-field text-xs"
+            className="input-field text-xs w-full sm:w-auto"
           />
           {scheduledFor && (
             <button

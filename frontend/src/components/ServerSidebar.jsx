@@ -6,10 +6,10 @@ export default function ServerSidebar({ servers, currentServer, onSelect }) {
   const { toggleCreateServer } = useUIStore();
 
   return (
-    <div className="w-[72px] h-full bg-beacon-sidebar flex flex-col items-center py-3 gap-2 border-r border-beacon-border overflow-y-auto">
+    <div className="w-14 sm:w-[72px] h-full bg-beacon-sidebar flex flex-col items-center py-3 gap-2 border-r border-beacon-border overflow-y-auto">
       {/* Home button */}
       <button onClick={() => onSelect(null)}
-        className="w-12 h-12 rounded-2xl bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white font-extrabold text-lg hover:rounded-xl transition-all duration-300 shadow-lg shadow-beacon-accent/25 mb-1">
+        className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-beacon-accent to-emerald-400 flex items-center justify-center text-white font-extrabold text-base sm:text-lg hover:rounded-xl transition-all duration-300 shadow-lg shadow-beacon-accent/25 mb-1">
         B
       </button>
 
@@ -24,7 +24,7 @@ export default function ServerSidebar({ servers, currentServer, onSelect }) {
             <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[22px] w-1 rounded-r-full bg-text-primary transition-all duration-200 ${isActive ? 'h-10' : 'h-0 group-hover:h-5'}`} />
 
             <button onClick={() => onSelect(server)}
-              className={`w-12 h-12 flex items-center justify-center transition-all duration-300 ${isActive ? 'rounded-xl bg-beacon-accent text-white' : 'rounded-2xl bg-beacon-hover text-text-secondary hover:rounded-xl hover:bg-beacon-accent hover:text-white'}`}
+              className={`w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center transition-all duration-300 ${isActive ? 'rounded-xl bg-beacon-accent text-white' : 'rounded-2xl bg-beacon-hover text-text-secondary hover:rounded-xl hover:bg-beacon-accent hover:text-white'}`}
               title={server.name}>
               {server.icon ? (
                 <img src={server.icon} alt={server.name} className="w-full h-full object-cover rounded-[inherit]" />
@@ -38,12 +38,12 @@ export default function ServerSidebar({ servers, currentServer, onSelect }) {
 
       {/* Join/Create buttons */}
       <button onClick={toggleCreateServer}
-        className="w-12 h-12 rounded-2xl bg-beacon-hover text-status-online flex items-center justify-center hover:rounded-xl hover:bg-status-online hover:text-white transition-all duration-300 mt-1"
+        className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-beacon-hover text-status-online flex items-center justify-center hover:rounded-xl hover:bg-status-online hover:text-white transition-all duration-300 mt-1"
         title="Add a Server">
         <Plus size={22} />
       </button>
 
-      <button className="w-12 h-12 rounded-2xl bg-beacon-hover text-status-online flex items-center justify-center hover:rounded-xl hover:bg-status-online hover:text-white transition-all duration-300"
+      <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-beacon-hover text-status-online flex items-center justify-center hover:rounded-xl hover:bg-status-online hover:text-white transition-all duration-300"
         title="Explore Servers">
         <Compass size={22} />
       </button>

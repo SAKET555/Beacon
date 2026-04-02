@@ -20,7 +20,7 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
   );
 
   return (
-    <div className="w-60 h-full bg-beacon-sidebar flex flex-col border-r border-beacon-border">
+    <div className="w-full sm:w-60 h-full bg-beacon-sidebar flex flex-col border-r border-beacon-border">
       {/* Server header */}
       <div className="relative">
         <button onClick={() => setShowServerMenu(!showServerMenu)}
