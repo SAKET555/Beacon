@@ -12,6 +12,7 @@ const auditLogSchema = new mongoose.Schema({
     enum: [
       'server_update', 'server_delete',
       'channel_create', 'channel_update', 'channel_delete',
+      'role_create', 'role_update', 'role_delete',
       'member_kick', 'member_ban', 'member_role_update',
       'message_pin', 'message_delete',
       'settings_update', 'invite_create',
