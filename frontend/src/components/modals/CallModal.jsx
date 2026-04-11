@@ -10,6 +10,7 @@ export default function CallModal({ channel, user, mode = 'video' }) {
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const peersRef = useRef(new Map());
+  const pendingIceRef = useRef(new Map());
   const [remoteStreams, setRemoteStreams] = useState([]);
   const [micEnabled, setMicEnabled] = useState(true);
   const [camEnabled, setCamEnabled] = useState(mode === 'video');
@@ -46,15 +47,32 @@ export default function CallModal({ channel, user, mode = 'video' }) {
     return pc;
   };
 
+  const flushPendingIce = async (userId, pc) => {
+    const pending = pendingIceRef.current.get(userId) || [];
+    if (pending.length === 0) return;
+
+    for (const candidate of pending) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('ICE flush error', error);
+      }
+    }
+
+    pendingIceRef.current.delete(userId);
+  };
+
   const handleLeave = () => {
     const socket = getSocket();
-    socket?.emit('call:leave', { channelId: channel._id });
+    if (channel?._id) {
+      socket?.emit('call:leave', { channelId: channel._id });
+    }
     peersRef.current.forEach(pc => pc.close());
     peersRef.current.clear();
+    pendingIceRef.current.clear();
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     setRemoteStreams([]);
-    setParticipants(new Map());
     closeCall();
   };
 
@@ -63,15 +81,20 @@ export default function CallModal({ channel, user, mode = 'video' }) {
     if (!socket || !channel?._id) return;
 
     const init = async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: mode === 'video'
-      });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: mode === 'video'
+        });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+        socket.emit('call:join', { channelId: channel._id, mode });
+      } catch (error) {
+        console.error('Failed to start media stream', error);
+        closeCall();
       }
-      socket.emit('call:join', { channelId: channel._id, mode });
     };
 
     init();
@@ -89,6 +112,7 @@ export default function CallModal({ channel, user, mode = 'video' }) {
       if (targetUserId && targetUserId !== user?._id) return;
       const pc = peersRef.current.get(userId) || createPeerConnection(userId);
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await flushPendingIce(userId, pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit('call:answer', { channelId: channel._id, targetUserId: userId, sdp: answer });
@@ -99,12 +123,18 @@ export default function CallModal({ channel, user, mode = 'video' }) {
       const pc = peersRef.current.get(userId);
       if (!pc) return;
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await flushPendingIce(userId, pc);
     });
 
     socket.on('call:ice', async ({ userId, candidate, targetUserId }) => {
       if (targetUserId && targetUserId !== user?._id) return;
       const pc = peersRef.current.get(userId);
-      if (!pc) return;
+      if (!pc || !pc.remoteDescription) {
+        const pending = pendingIceRef.current.get(userId) || [];
+        pending.push(candidate);
+        pendingIceRef.current.set(userId, pending);
+        return;
+      }
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (error) {

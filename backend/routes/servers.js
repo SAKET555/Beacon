@@ -6,6 +6,7 @@ const Server = require('../models/Server');
 const Channel = require('../models/Channel');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
+const { DEFAULT_PERMISSIONS, ensureServerRoles, getMemberPermissions, hasServerPermission } = require('../utils/permissions');
 
 const router = express.Router();
 
@@ -41,6 +42,7 @@ router.post('/', auth, [
       owner: req.userId,
       members: [{ user: req.userId, role: 'owner' }]
     });
+    ensureServerRoles(server);
     await server.save();
 
     // Create default general channel
@@ -97,6 +99,9 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(403).json({ error: 'Not a member of this server' });
     }
 
+    const changed = ensureServerRoles(server);
+    if (changed) await server.save();
+
     res.json({ server });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch server' });
@@ -111,8 +116,9 @@ router.patch('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'Server not found' });
     }
 
+    ensureServerRoles(server);
     const member = server.members.find(m => m.user.toString() === req.userId.toString());
-    if (!member || !['owner', 'admin'].includes(member.role)) {
+    if (!member || !hasServerPermission(server, member, 'manageServer')) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
@@ -280,9 +286,235 @@ router.get('/:id/members', auth, async (req, res) => {
       return res.status(404).json({ error: 'Server not found' });
     }
 
+    const changed = ensureServerRoles(server);
+    if (changed) await server.save();
+
     res.json({ members: server.members });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch members' });
+  }
+});
+
+// GET /api/servers/:id/roles - Get server roles and current user's permissions
+router.get('/:id/roles', auth, async (req, res) => {
+  try {
+    const server = await Server.findById(req.params.id);
+    if (!server) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    const changed = ensureServerRoles(server);
+    if (changed) await server.save();
+
+    const member = server.members.find(m => m.user.toString() === req.userId.toString());
+    if (!member) {
+      return res.status(403).json({ error: 'Not a member of this server' });
+    }
+
+    const permissions = getMemberPermissions(server, member);
+
+    res.json({
+      roles: (server.roles || []).sort((a, b) => (b.position || 0) - (a.position || 0)),
+      permissions,
+      permissionKeys: Object.keys(DEFAULT_PERMISSIONS)
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch roles' });
+  }
+});
+
+// POST /api/servers/:id/roles - Create a custom role
+router.post('/:id/roles', auth, async (req, res) => {
+  try {
+    const server = await Server.findById(req.params.id);
+    if (!server) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    ensureServerRoles(server);
+    const member = server.members.find(m => m.user.toString() === req.userId.toString());
+    if (!member || !hasServerPermission(server, member, 'manageRoles')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const roleName = (req.body.name || '').trim();
+    if (!roleName) {
+      return res.status(400).json({ error: 'Role name is required' });
+    }
+
+    const duplicate = server.roles.some(r => r.name.toLowerCase() === roleName.toLowerCase());
+    if (duplicate) {
+      return res.status(400).json({ error: 'Role name already exists' });
+    }
+
+    const maxPosition = Math.max(...server.roles.map(r => r.position || 0), 0);
+    const role = {
+      id: `role-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: roleName,
+      color: req.body.color || '#8b5cf6',
+      position: maxPosition + 1,
+      isSystem: false,
+      permissions: { ...DEFAULT_PERMISSIONS }
+    };
+
+    server.roles.push(role);
+    await server.save();
+
+    await AuditLog.create({
+      server: server._id,
+      action: 'role_create',
+      user: req.userId,
+      target: role.name,
+      details: { roleId: role.id }
+    });
+
+    res.status(201).json({ role, roles: server.roles });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create role' });
+  }
+});
+
+// PATCH /api/servers/:id/roles/:roleId - Update role metadata/permissions
+router.patch('/:id/roles/:roleId', auth, async (req, res) => {
+  try {
+    const server = await Server.findById(req.params.id);
+    if (!server) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    ensureServerRoles(server);
+    const member = server.members.find(m => m.user.toString() === req.userId.toString());
+    if (!member || !hasServerPermission(server, member, 'manageRoles')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const role = server.roles.find(r => r.id === req.params.roleId);
+    if (!role) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    if (!role.isSystem && req.body.name !== undefined) {
+      const nextName = req.body.name.trim();
+      if (!nextName) {
+        return res.status(400).json({ error: 'Role name cannot be empty' });
+      }
+      const duplicate = server.roles.some(r => r.id !== role.id && r.name.toLowerCase() === nextName.toLowerCase());
+      if (duplicate) {
+        return res.status(400).json({ error: 'Role name already exists' });
+      }
+      role.name = nextName;
+    }
+
+    if (req.body.color !== undefined) role.color = req.body.color;
+    if (req.body.position !== undefined) role.position = Number(req.body.position) || 0;
+
+    if (req.body.permissions && typeof req.body.permissions === 'object') {
+      role.permissions = {
+        ...DEFAULT_PERMISSIONS,
+        ...role.permissions,
+        ...req.body.permissions
+      };
+    }
+
+    await server.save();
+
+    await AuditLog.create({
+      server: server._id,
+      action: 'role_update',
+      user: req.userId,
+      target: role.name,
+      details: { roleId: role.id }
+    });
+
+    res.json({ role, roles: server.roles });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// DELETE /api/servers/:id/roles/:roleId - Delete custom role
+router.delete('/:id/roles/:roleId', auth, async (req, res) => {
+  try {
+    const server = await Server.findById(req.params.id);
+    if (!server) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    ensureServerRoles(server);
+    const member = server.members.find(m => m.user.toString() === req.userId.toString());
+    if (!member || !hasServerPermission(server, member, 'manageRoles')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const role = server.roles.find(r => r.id === req.params.roleId);
+    if (!role) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    if (role.isSystem) {
+      return res.status(400).json({ error: 'System roles cannot be deleted' });
+    }
+
+    server.roles = server.roles.filter(r => r.id !== role.id);
+    server.members.forEach(m => {
+      m.roleIds = (m.roleIds || []).filter(id => id !== role.id);
+    });
+
+    await server.save();
+
+    await AuditLog.create({
+      server: server._id,
+      action: 'role_delete',
+      user: req.userId,
+      target: role.name,
+      details: { roleId: role.id }
+    });
+
+    res.json({ roles: server.roles });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete role' });
+  }
+});
+
+// PATCH /api/servers/:id/members/:memberId/roles - Replace a member's role assignments
+router.patch('/:id/members/:memberId/roles', auth, async (req, res) => {
+  try {
+    const server = await Server.findById(req.params.id);
+    if (!server) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    ensureServerRoles(server);
+    const actor = server.members.find(m => m.user.toString() === req.userId.toString());
+    if (!actor || !hasServerPermission(server, actor, 'manageRoles')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const target = server.members.find(m => m.user.toString() === req.params.memberId);
+    if (!target) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    if (target.role === 'owner') {
+      return res.status(400).json({ error: 'Cannot change owner roles' });
+    }
+
+    const roleIds = Array.isArray(req.body.roleIds) ? req.body.roleIds : [];
+    const allowedRoleIds = new Set(server.roles.map(r => r.id));
+    target.roleIds = [...new Set(roleIds)].filter(id => allowedRoleIds.has(id));
+
+    // Keep legacy field in sync for old code paths.
+    const roleNames = target.roleIds
+      .map(id => server.roles.find(r => r.id === id)?.name?.toLowerCase())
+      .filter(Boolean);
+    if (roleNames.includes('admin')) target.role = 'admin';
+    else if (roleNames.includes('moderator')) target.role = 'moderator';
+    else target.role = 'member';
+
+    await server.save();
+
+    res.json({ member: target, members: server.members });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update member roles' });
   }
 });
 

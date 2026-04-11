@@ -8,14 +8,10 @@ const router = express.Router();
 router.post('/', auth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file provided' });
-    let resourceType = 'auto';
-    if (req.file.mimetype.startsWith('image/')) resourceType = 'image';
-    else if (req.file.mimetype.startsWith('video/')) resourceType = 'video';
-    else resourceType = 'raw';
 
     const result = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { folder: 'royal-beacon/attachments', resource_type: resourceType, use_filename: true, unique_filename: true },
+        { folder: 'royal-beacon/attachments', resource_type: 'auto', use_filename: true, unique_filename: true },
         (error, result) => { if (error) reject(error); else resolve(result); }
       );
       stream.end(req.file.buffer);

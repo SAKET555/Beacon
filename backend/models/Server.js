@@ -11,6 +11,9 @@ const memberSchema = new mongoose.Schema({
     enum: ['owner', 'admin', 'moderator', 'member'],
     default: 'member'
   },
+  roleIds: [{
+    type: String
+  }],
   nickname: {
     type: String,
     maxlength: 32,
@@ -19,6 +22,35 @@ const memberSchema = new mongoose.Schema({
   joinedAt: {
     type: Date,
     default: Date.now
+  }
+}, { _id: false });
+
+const roleSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true
+  },
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 32
+  },
+  color: {
+    type: String,
+    default: '#6b7280'
+  },
+  position: {
+    type: Number,
+    default: 0
+  },
+  isSystem: {
+    type: Boolean,
+    default: false
+  },
+  permissions: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   }
 }, { _id: false });
 
@@ -47,6 +79,7 @@ const serverSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  roles: [roleSchema],
   members: [memberSchema],
   channels: [{
     type: mongoose.Schema.Types.ObjectId,

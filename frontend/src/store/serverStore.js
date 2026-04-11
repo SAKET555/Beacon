@@ -4,6 +4,10 @@ import api from '../services/api';
 const useServerStore = create((set, get) => ({
   servers: [],
   currentServer: null,
+  serverRoles: [],
+  serverMembers: [],
+  permissionKeys: [],
+  myPermissions: {},
   loading: false,
 
   fetchServers: async () => {
@@ -79,6 +83,76 @@ const useServerStore = create((set, get) => ({
         servers: state.servers.map(s => (s._id === serverId ? { ...s, ...data.server } : s))
       }));
       return { success: true, server: data.server };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
+  fetchServerMembers: async (serverId) => {
+    try {
+      const { data } = await api.get(`/servers/${serverId}/members`);
+      set({ serverMembers: data.members || [] });
+      return { success: true, members: data.members || [] };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
+  fetchServerRoles: async (serverId) => {
+    try {
+      const { data } = await api.get(`/servers/${serverId}/roles`);
+      set({
+        serverRoles: data.roles || [],
+        permissionKeys: data.permissionKeys || [],
+        myPermissions: data.permissions || {}
+      });
+      return { success: true, roles: data.roles || [] };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
+  createServerRole: async (serverId, name) => {
+    try {
+      const { data } = await api.post(`/servers/${serverId}/roles`, { name });
+      set({ serverRoles: data.roles || [] });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
+  updateServerRole: async (serverId, roleId, updates) => {
+    try {
+      const { data } = await api.patch(`/servers/${serverId}/roles/${roleId}`, updates);
+      set({ serverRoles: data.roles || [] });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
+  deleteServerRole: async (serverId, roleId) => {
+    try {
+      const { data } = await api.delete(`/servers/${serverId}/roles/${roleId}`);
+      set({ serverRoles: data.roles || [] });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error };
+    }
+  },
+
+  updateMemberRoles: async (serverId, memberId, roleIds) => {
+    try {
+      const { data } = await api.patch(`/servers/${serverId}/members/${memberId}/roles`, { roleIds });
+      set(state => ({
+        serverMembers: state.serverMembers.map(m =>
+          m.user?._id === memberId
+            ? { ...m, role: data.member?.role ?? m.role, roleIds: data.member?.roleIds ?? m.roleIds }
+            : m
+        )
+      }));
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.response?.data?.error };
     }

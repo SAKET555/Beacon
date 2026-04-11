@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Server = require('../models/Server');
 const Message = require('../models/Message');
 const AuditLog = require('../models/AuditLog');
+const { ensureServerRoles, hasServerPermission } = require('../utils/permissions');
 
 const router = express.Router();
 
@@ -36,8 +37,9 @@ router.post('/:serverId', auth, [
       return res.status(404).json({ error: 'Server not found' });
     }
 
+    ensureServerRoles(server);
     const member = server.members.find(m => m.user.toString() === req.userId.toString());
-    if (!member || !['owner', 'admin', 'moderator'].includes(member.role)) {
+    if (!member || !hasServerPermission(server, member, 'manageChannels')) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
@@ -103,8 +105,9 @@ router.patch('/:id', auth, async (req, res) => {
 
     if (channel.server) {
       const server = await Server.findById(channel.server);
+      ensureServerRoles(server);
       const member = server.members.find(m => m.user.toString() === req.userId.toString());
-      if (!member || !['owner', 'admin', 'moderator'].includes(member.role)) {
+      if (!member || !hasServerPermission(server, member, 'manageChannels')) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
     }
@@ -146,8 +149,9 @@ router.delete('/:id', auth, async (req, res) => {
 
     if (channel.server) {
       const server = await Server.findById(channel.server);
+      ensureServerRoles(server);
       const member = server.members.find(m => m.user.toString() === req.userId.toString());
-      if (!member || !['owner', 'admin'].includes(member.role)) {
+      if (!member || !hasServerPermission(server, member, 'manageChannels')) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
