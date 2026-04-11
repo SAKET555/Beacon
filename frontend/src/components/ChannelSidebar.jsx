@@ -2,7 +2,7 @@ import { Hash, Megaphone, Plus, Settings, ChevronDown, UserPlus, Bell, Search, P
 import useUIStore from '../store/uiStore';
 import useAuthStore from '../store/authStore';
 import useNotificationStore from '../store/notificationStore';
-import { getStatusColor } from '../utils/helpers';
+import { getStatusColor, getServerPermissionsForUser } from '../utils/helpers';
 import { useState } from 'react';
 
 export default function ChannelSidebar({ server, channels, currentChannel, onSelectChannel, user }) {
@@ -15,9 +15,9 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
   const textChannels = channels.filter(c => c.type === 'text');
   const announcementChannels = channels.filter(c => c.type === 'announcement');
 
-  const isAdminOrOwner = server?.members?.some(
-    m => m.user?._id === user?._id && ['owner', 'admin'].includes(m.role)
-  );
+  const permissions = getServerPermissionsForUser(server, user?._id);
+  const canManageChannels = !!permissions.manageChannels;
+  const canManageServer = !!permissions.manageServer;
 
   return (
     <div className="w-full sm:w-60 h-full bg-beacon-sidebar flex flex-col border-r border-beacon-border">
@@ -36,13 +36,13 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
               className="sidebar-item w-full text-sm">
               <UserPlus size={16} /> Invite People
             </button>
-            {isAdminOrOwner && (
+            {canManageChannels && (
               <button onClick={() => { toggleCreateChannel(); setShowServerMenu(false); }}
                 className="sidebar-item w-full text-sm">
                 <Plus size={16} /> Create Channel
               </button>
             )}
-            {isAdminOrOwner && (
+            {canManageServer && (
               <button onClick={() => { toggleServerSettings(); setShowServerMenu(false); }}
                 className="sidebar-item w-full text-sm">
                 <Settings size={16} /> Server Settings
@@ -68,7 +68,7 @@ export default function ChannelSidebar({ server, channels, currentChannel, onSel
           <div>
             <div className="flex items-center justify-between px-1 mb-1">
               <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Text Channels</span>
-              {isAdminOrOwner && (
+              {canManageChannels && (
                 <button onClick={toggleCreateChannel} className="text-text-muted hover:text-text-primary transition-colors">
                   <Plus size={14} />
                 </button>

@@ -7,6 +7,7 @@ const Notification = require('../models/Notification');
 const { buildLinkPreviews } = require('../utils/linkPreview');
 const { sendPushToUser } = require('../utils/push');
 const Server = require('../models/Server');
+const { ensureServerRoles, hasServerPermission } = require('../utils/permissions');
 
 const router = express.Router();
 
@@ -65,8 +66,9 @@ router.post('/:channelId', auth, [
     if (channel.settings.locked) {
       if (channel.server) {
         const server = await Server.findById(channel.server);
+        ensureServerRoles(server);
         const member = server.members.find(m => m.user.toString() === req.userId.toString());
-        if (!member || !['owner', 'admin', 'moderator'].includes(member.role)) {
+        if (!member || !hasServerPermission(server, member, 'manageMessages')) {
           return res.status(403).json({ error: 'Channel is locked' });
         }
       }
@@ -244,8 +246,9 @@ router.delete('/:id', auth, async (req, res) => {
     let canDelete = message.author.toString() === req.userId.toString();
     if (!canDelete && message.server) {
       const server = await Server.findById(message.server);
+      ensureServerRoles(server);
       const member = server.members.find(m => m.user.toString() === req.userId.toString());
-      canDelete = member && ['owner', 'admin', 'moderator'].includes(member.role);
+      canDelete = !!member && hasServerPermission(server, member, 'manageMessages');
     }
 
     if (!canDelete) {

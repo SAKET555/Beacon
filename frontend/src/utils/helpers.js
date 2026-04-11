@@ -51,3 +51,49 @@ export const formatFileSize = (bytes) => {
 export const isImageFile = (type) => type?.startsWith('image/');
 export const isVideoFile = (type) => type?.startsWith('video/');
 export const isAudioFile = (type) => type?.startsWith('audio/');
+
+const DEFAULT_SERVER_PERMISSIONS = {
+  viewChannels: true,
+  manageServer: false,
+  manageRoles: false,
+  manageChannels: false,
+  manageMessages: false,
+  kickMembers: false,
+  banMembers: false,
+  createInvites: true,
+  sendMessages: true,
+  attachFiles: true,
+  mentionEveryone: false,
+  connectVoice: true,
+  speakVoice: true,
+  videoVoice: true,
+  muteMembers: false,
+  deafenMembers: false,
+  moveMembers: false
+};
+
+export const getServerPermissionsForUser = (server, userId) => {
+  const member = server?.members?.find(m => m.user?._id === userId || m.user?.toString?.() === userId);
+  if (!member) return { ...DEFAULT_SERVER_PERMISSIONS };
+
+  if (member.role === 'owner') {
+    return Object.keys(DEFAULT_SERVER_PERMISSIONS).reduce((acc, key) => {
+      acc[key] = true;
+      return acc;
+    }, {});
+  }
+
+  const roleIds = new Set(member.roleIds || []);
+  const roles = (server?.roles || [])
+    .filter(role => roleIds.has(role.id))
+    .sort((a, b) => (b.position || 0) - (a.position || 0));
+
+  const merged = { ...DEFAULT_SERVER_PERMISSIONS };
+  roles.forEach(role => {
+    Object.entries(role.permissions || {}).forEach(([key, value]) => {
+      merged[key] = !!value;
+    });
+  });
+
+  return merged;
+};
