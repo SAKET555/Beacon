@@ -44,6 +44,8 @@ export default function MessageItem({ message, user, channel, server, readBy = [
     const result = await togglePin(channel._id, message._id);
     if (result.success) {
       toast.success(result.pinned ? 'Message pinned!' : 'Message unpinned');
+    } else {
+      toast.error(result.error || 'Could not pin message');
     }
   };
 

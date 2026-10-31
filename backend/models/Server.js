@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 
 const memberSchema = new mongoose.Schema({
@@ -108,7 +109,8 @@ serverSchema.index({ name: 'text', description: 'text' });
 // Generate invite code
 serverSchema.pre('save', function(next) {
   if (!this.inviteCode) {
-    this.inviteCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+    // crypto-random so invite codes can't be predicted or enumerated
+    this.inviteCode = crypto.randomBytes(5).toString('hex').toUpperCase();
   }
   next();
 });

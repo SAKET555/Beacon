@@ -2,32 +2,42 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const auth = require('../middleware/auth');
 const Message = require('../models/Message');
-const Channel = require('../models/Channel');
 const Notification = require('../models/Notification');
+const AuditLog = require('../models/AuditLog');
 const { buildLinkPreviews } = require('../utils/linkPreview');
 const { sendPushToUser } = require('../utils/push');
-const Server = require('../models/Server');
-const { ensureServerRoles, hasServerPermission } = require('../utils/permissions');
+const { hasServerPermission } = require('../utils/permissions');
+const { useIdParams, isId, parsePaging, parseDate } = require('../utils/http');
+const { sanitizeAttachments } = require('../utils/sanitize');
+const { sameId, denyAccess, getChannelAccess, getMessageAccess } = require('../utils/access');
 
 const router = express.Router();
+useIdParams(router, 'channelId', 'id', 'messageId');
+
+const MAX_SCHEDULE_MS = 365 * 24 * 60 * 60 * 1000;
 
 // GET /api/messages/:channelId - Get messages with pagination
 router.get('/:channelId', auth, async (req, res) => {
   try {
-    const { page = 1, limit = 50, before } = req.query;
+    const access = await getChannelAccess(req.params.channelId, req.userId);
+    if (access.error) return denyAccess(res, access);
+
+    const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 50, maxLimit: 100 });
     const query = {
-      channel: req.params.channelId,
+      channel: access.channel._id,
       isScheduled: false
     };
 
-    if (before) {
-      query.createdAt = { $lt: new Date(before) };
+    if (req.query.before) {
+      const before = parseDate(req.query.before);
+      if (!before) return res.status(400).json({ error: 'Invalid before date' });
+      query.createdAt = { $lt: before };
     }
 
     const messages = await Message.find(query)
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(limit)
+      .skip(skip)
       .populate('author', 'username displayName avatar status')
       .populate('mentions', 'username displayName')
       .populate({
@@ -40,7 +50,7 @@ router.get('/:channelId', auth, async (req, res) => {
     res.json({
       messages: messages.reverse(),
       total,
-      hasMore: total > parseInt(page) * parseInt(limit)
+      hasMore: total > page * limit
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch messages' });
@@ -49,7 +59,7 @@ router.get('/:channelId', auth, async (req, res) => {
 
 // POST /api/messages/:channelId - Send a message
 router.post('/:channelId', auth, [
-  body('content').optional().isLength({ max: 2000 })
+  body('content').optional().isString().isLength({ max: 2000 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -57,70 +67,90 @@ router.post('/:channelId', auth, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const channel = await Channel.findById(req.params.channelId);
-    if (!channel) {
-      return res.status(404).json({ error: 'Channel not found' });
-    }
+    const access = await getChannelAccess(req.params.channelId, req.userId, 'sendMessages');
+    if (access.error) return denyAccess(res, access);
+    const { channel, server, member } = access;
 
     // Check locked channel
-    if (channel.settings.locked) {
-      if (channel.server) {
-        const server = await Server.findById(channel.server);
-        ensureServerRoles(server);
-        const member = server.members.find(m => m.user.toString() === req.userId.toString());
-        if (!member || !hasServerPermission(server, member, 'manageMessages')) {
-          return res.status(403).json({ error: 'Channel is locked' });
-        }
-      }
+    if (channel.settings.locked && server && !hasServerPermission(server, member, 'manageMessages')) {
+      return res.status(403).json({ error: 'Channel is locked' });
+    }
+
+    const content = req.body.content || '';
+    const attachments = sanitizeAttachments(req.body.attachments);
+    const { replyTo, scheduledFor } = req.body;
+
+    if (!content && attachments.length === 0) {
+      return res.status(400).json({ error: 'Message must have content or attachments' });
+    }
+    if (attachments.length > 0 && server && !hasServerPermission(server, member, 'attachFiles')) {
+      return res.status(403).json({ error: 'You cannot attach files in this server' });
     }
 
     // Check spam filter
-    if (channel.server) {
-      const server = await Server.findById(channel.server);
-      if (server.settings.spamFilter && server.settings.filteredWords.length > 0) {
-        const content = (req.body.content || '').toLowerCase();
-        const hasFilteredWord = server.settings.filteredWords.some(word =>
-          content.includes(word.toLowerCase())
-        );
-        if (hasFilteredWord) {
-          return res.status(400).json({ error: 'Message contains filtered words' });
-        }
+    if (server && server.settings.spamFilter && server.settings.filteredWords.length > 0) {
+      const lowered = content.toLowerCase();
+      const hasFilteredWord = server.settings.filteredWords.some(word =>
+        lowered.includes(word.toLowerCase())
+      );
+      if (hasFilteredWord) {
+        return res.status(400).json({ error: 'Message contains filtered words' });
       }
     }
 
-    const { content, attachments, replyTo, mentions, scheduledFor } = req.body;
+    // Mentions may only target people who can actually see this channel
+    const allowedUsers = new Set(
+      server
+        ? server.members.map(m => m.user.toString())
+        : channel.participants.map(p => p.toString())
+    );
+    const mentions = [...new Set(Array.isArray(req.body.mentions) ? req.body.mentions : [])]
+      .filter(id => isId(id) && allowedUsers.has(id) && id !== req.userId.toString())
+      .slice(0, 20);
 
-    if (!content && (!attachments || attachments.length === 0)) {
-      return res.status(400).json({ error: 'Message must have content or attachments' });
+    // A reply must point at a message in the same channel
+    let parentMsg = null;
+    if (replyTo !== undefined && replyTo !== null) {
+      if (!isId(replyTo)) return res.status(400).json({ error: 'Invalid reply target' });
+      parentMsg = await Message.findById(replyTo);
+      if (!parentMsg || !sameId(parentMsg.channel, channel._id)) {
+        return res.status(400).json({ error: 'Invalid reply target' });
+      }
     }
 
-    const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
-    if (scheduledDate && Number.isNaN(scheduledDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid schedule time' });
-    }
-    if (scheduledDate && scheduledDate.getTime() < Date.now() + 1000) {
-      return res.status(400).json({ error: 'Scheduled time must be in the future' });
+    let scheduledDate = null;
+    if (scheduledFor) {
+      scheduledDate = parseDate(scheduledFor);
+      if (!scheduledDate) {
+        return res.status(400).json({ error: 'Invalid schedule time' });
+      }
+      if (scheduledDate.getTime() < Date.now() + 1000) {
+        return res.status(400).json({ error: 'Scheduled time must be in the future' });
+      }
+      if (scheduledDate.getTime() > Date.now() + MAX_SCHEDULE_MS) {
+        return res.status(400).json({ error: 'Messages can be scheduled at most one year ahead' });
+      }
     }
 
-    const linkPreviews = await buildLinkPreviews(content || '');
+    const linkPreviews = await buildLinkPreviews(content);
 
     const message = new Message({
-      content: content || '',
+      content,
       author: req.userId,
       channel: channel._id,
       server: channel.server || null,
-      attachments: attachments || [],
+      attachments,
       linkPreviews,
-      replyTo: replyTo || null,
-      mentions: mentions || [],
-      scheduledFor: scheduledDate || null,
+      replyTo: parentMsg ? parentMsg._id : null,
+      mentions,
+      scheduledFor: scheduledDate,
       isScheduled: !!scheduledDate
     });
     await message.save();
 
     // Update thread count if replying
-    if (replyTo) {
-      await Message.findByIdAndUpdate(replyTo, { $inc: { threadCount: 1 } });
+    if (parentMsg) {
+      await Message.findByIdAndUpdate(parentMsg._id, { $inc: { threadCount: 1 } });
     }
 
     // Update channel's lastMessage only for immediate messages
@@ -145,7 +175,7 @@ router.post('/:channelId', auth, [
       io.to(`channel:${channel._id}`).emit('message:new', { message });
 
       // Create notifications for mentions
-      if (mentions && mentions.length > 0) {
+      if (mentions.length > 0) {
         const notifications = mentions.map(userId => ({
           user: userId,
           type: 'mention',
@@ -168,26 +198,23 @@ router.post('/:channelId', auth, [
       }
 
       // Create notification for reply
-      if (replyTo) {
-        const parentMsg = await Message.findById(replyTo);
-        if (parentMsg && parentMsg.author.toString() !== req.userId.toString()) {
-          const notif = await Notification.create({
-            user: parentMsg.author,
-            type: 'reply',
-            title: `${req.user.username} replied to your message`,
-            body: content ? content.substring(0, 100) : 'with an attachment',
-            message: message._id,
-            channel: channel._id,
-            server: channel.server,
-            sender: req.userId
-          });
-          io.to(`user:${parentMsg.author}`).emit('notification:new', { notification: notif });
-          sendPushToUser(parentMsg.author, {
-            title: notif.title,
-            body: notif.body,
-            data: { messageId: message._id, channelId: channel._id, serverId: channel.server }
-          });
-        }
+      if (parentMsg && !sameId(parentMsg.author, req.userId)) {
+        const notif = await Notification.create({
+          user: parentMsg.author,
+          type: 'reply',
+          title: `${req.user.username} replied to your message`,
+          body: content ? content.substring(0, 100) : 'with an attachment',
+          message: message._id,
+          channel: channel._id,
+          server: channel.server,
+          sender: req.userId
+        });
+        io.to(`user:${parentMsg.author}`).emit('notification:new', { notification: notif });
+        sendPushToUser(parentMsg.author, {
+          title: notif.title,
+          body: notif.body,
+          data: { messageId: message._id, channelId: channel._id, serverId: channel.server }
+        });
       }
     }
 
@@ -201,16 +228,19 @@ router.post('/:channelId', auth, [
 // PATCH /api/messages/:id - Edit a message
 router.patch('/:id', auth, async (req, res) => {
   try {
-    const message = await Message.findById(req.params.id);
-    if (!message) {
-      return res.status(404).json({ error: 'Message not found' });
-    }
-    if (message.author.toString() !== req.userId.toString()) {
+    const access = await getMessageAccess(req.params.id, req.userId);
+    if (access.error) return denyAccess(res, access);
+    const { message } = access;
+
+    if (!sameId(message.author, req.userId)) {
       return res.status(403).json({ error: 'Can only edit own messages' });
+    }
+    if (message.isDeleted) {
+      return res.status(400).json({ error: 'Message was deleted' });
     }
 
     const { content } = req.body;
-    if (!content || content.length > 2000) {
+    if (typeof content !== 'string' || !content || content.length > 2000) {
       return res.status(400).json({ error: 'Invalid content' });
     }
 
@@ -237,28 +267,33 @@ router.patch('/:id', auth, async (req, res) => {
 // DELETE /api/messages/:id - Delete a message
 router.delete('/:id', auth, async (req, res) => {
   try {
-    const message = await Message.findById(req.params.id);
-    if (!message) {
-      return res.status(404).json({ error: 'Message not found' });
-    }
+    const access = await getMessageAccess(req.params.id, req.userId);
+    if (access.error) return denyAccess(res, access);
+    const { message, server, member } = access;
 
-    // Authors can delete their own messages, admins can delete any
-    let canDelete = message.author.toString() === req.userId.toString();
-    if (!canDelete && message.server) {
-      const server = await Server.findById(message.server);
-      ensureServerRoles(server);
-      const member = server.members.find(m => m.user.toString() === req.userId.toString());
-      canDelete = !!member && hasServerPermission(server, member, 'manageMessages');
-    }
-
-    if (!canDelete) {
+    // Authors can delete their own messages, moderators can delete any in their server
+    const isAuthor = sameId(message.author, req.userId);
+    const isModerator = !!server && hasServerPermission(server, member, 'manageMessages');
+    if (!isAuthor && !isModerator) {
       return res.status(403).json({ error: 'Cannot delete this message' });
     }
 
     message.isDeleted = true;
     message.content = '';
     message.attachments = [];
+    message.linkPreviews = [];
+    message.editHistory = [];
     await message.save();
+
+    if (!isAuthor && server) {
+      await AuditLog.create({
+        server: server._id,
+        action: 'message_delete',
+        user: req.userId,
+        target: message.author.toString(),
+        targetId: message._id
+      });
+    }
 
     const io = req.app.get('io');
     io.to(`channel:${message.channel}`).emit('message:deleted', {
@@ -276,19 +311,23 @@ router.delete('/:id', auth, async (req, res) => {
 router.post('/:id/react', auth, async (req, res) => {
   try {
     const { emoji } = req.body;
-    if (!emoji) {
+    if (typeof emoji !== 'string' || !emoji.trim() || emoji.length > 32) {
       return res.status(400).json({ error: 'Emoji required' });
     }
 
-    const message = await Message.findById(req.params.id);
-    if (!message) {
-      return res.status(404).json({ error: 'Message not found' });
+    const access = await getMessageAccess(req.params.id, req.userId);
+    if (access.error) return denyAccess(res, access);
+    const { message } = access;
+
+    if (message.isDeleted) {
+      return res.status(400).json({ error: 'Message was deleted' });
     }
 
     const existingReaction = message.reactions.find(r => r.emoji === emoji);
+    let added = false;
 
     if (existingReaction) {
-      const userIndex = existingReaction.users.indexOf(req.userId);
+      const userIndex = existingReaction.users.findIndex(u => sameId(u, req.userId));
       if (userIndex > -1) {
         existingReaction.users.splice(userIndex, 1);
         if (existingReaction.users.length === 0) {
@@ -296,13 +335,17 @@ router.post('/:id/react', auth, async (req, res) => {
         }
       } else {
         existingReaction.users.push(req.userId);
+        added = true;
       }
     } else {
+      if (message.reactions.length >= 20) {
+        return res.status(400).json({ error: 'Too many different reactions on this message' });
+      }
       message.reactions.push({ emoji, users: [req.userId] });
+      added = true;
     }
 
     await message.save();
-    await message.populate('author', 'username displayName avatar status');
 
     const io = req.app.get('io');
     io.to(`channel:${message.channel}`).emit('message:reacted', {
@@ -312,8 +355,8 @@ router.post('/:id/react', auth, async (req, res) => {
       emoji
     });
 
-    // Notification for reaction
-    if (message.author.toString() !== req.userId.toString()) {
+    // Notification for reaction (only when adding, not when removing)
+    if (added && !sameId(message.author, req.userId)) {
       const notif = await Notification.create({
         user: message.author,
         type: 'reaction',
@@ -336,35 +379,47 @@ router.post('/:id/react', auth, async (req, res) => {
 // GET /api/messages/search/:channelId - Search messages
 router.get('/search/:channelId', auth, async (req, res) => {
   try {
-    const { q, author, has, before, after, limit = 25 } = req.query;
+    const access = await getChannelAccess(req.params.channelId, req.userId);
+    if (access.error) return denyAccess(res, access);
+
+    const { q, author, has, before, after } = req.query;
+    const { limit } = parsePaging(req.query, { defaultLimit: 25, maxLimit: 50 });
     const query = {
-      channel: req.params.channelId,
+      channel: access.channel._id,
       isDeleted: false,
       isScheduled: false
     };
 
-    if (q) {
-      query.$text = { $search: q };
+    if (q !== undefined) {
+      if (typeof q !== 'string' || q.length > 200) {
+        return res.status(400).json({ error: 'Invalid search query' });
+      }
+      if (q.trim()) query.$text = { $search: q };
     }
-    if (author) {
+    if (author !== undefined) {
+      if (!isId(author)) return res.status(400).json({ error: 'Invalid author' });
       query.author = author;
     }
     if (has === 'attachment') {
       query['attachments.0'] = { $exists: true };
     }
     if (has === 'link') {
-      query.content = { $regex: /https?:\/\//, $options: 'i' };
+      query.content = { $regex: /https?:\/\//i };
     }
-    if (before) {
-      query.createdAt = { ...query.createdAt, $lt: new Date(before) };
+    if (before !== undefined) {
+      const date = parseDate(before);
+      if (!date) return res.status(400).json({ error: 'Invalid before date' });
+      query.createdAt = { ...query.createdAt, $lt: date };
     }
-    if (after) {
-      query.createdAt = { ...query.createdAt, $gt: new Date(after) };
+    if (after !== undefined) {
+      const date = parseDate(after);
+      if (!date) return res.status(400).json({ error: 'Invalid after date' });
+      query.createdAt = { ...query.createdAt, $gt: date };
     }
 
     const messages = await Message.find(query)
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
+      .limit(limit)
       .populate('author', 'username displayName avatar');
 
     res.json({ messages, total: messages.length });
@@ -376,14 +431,18 @@ router.get('/search/:channelId', auth, async (req, res) => {
 // GET /api/messages/thread/:messageId - Get thread messages
 router.get('/thread/:messageId', auth, async (req, res) => {
   try {
+    const access = await getMessageAccess(req.params.messageId, req.userId);
+    if (access.error) return denyAccess(res, access);
+
     const messages = await Message.find({
       $or: [
-        { _id: req.params.messageId },
-        { replyTo: req.params.messageId }
+        { _id: access.message._id },
+        { replyTo: access.message._id }
       ],
       isScheduled: false
     })
       .sort({ createdAt: 1 })
+      .limit(500)
       .populate('author', 'username displayName avatar status');
 
     res.json({ messages });

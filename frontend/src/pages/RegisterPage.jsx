@@ -16,7 +16,7 @@ export default function RegisterPage() {
     e.preventDefault();
     if (!username || !email || !password) return toast.error('Please fill in all fields');
     if (password !== confirmPassword) return toast.error('Passwords do not match');
-    if (password.length < 6) return toast.error('Password must be at least 6 characters');
+    if (password.length < 8) return toast.error('Password must be at least 8 characters');
     if (username.length < 3) return toast.error('Username must be at least 3 characters');
 
     const result = await register(username, email, password);
@@ -60,7 +60,7 @@ export default function RegisterPage() {
               <div className="relative">
                 <input type={showPassword ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="input-field w-full pr-10" placeholder="Min 6 characters" />
+                  className="input-field w-full pr-10" placeholder="Min 8 characters" />
                 <button type="button" onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}

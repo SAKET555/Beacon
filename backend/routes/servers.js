@@ -1,14 +1,41 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const auth = require('../middleware/auth');
-const roleCheck = require('../middleware/roleCheck');
 const Server = require('../models/Server');
 const Channel = require('../models/Channel');
+const Message = require('../models/Message');
+const Notification = require('../models/Notification');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { DEFAULT_PERMISSIONS, ensureServerRoles, getMemberPermissions, hasServerPermission } = require('../utils/permissions');
+const { useIdParams, cleanString, cleanMediaUrl } = require('../utils/http');
+const { sanitizeServerSettings, isHexColor } = require('../utils/sanitize');
+const { sameId } = require('../utils/access');
+const { evictFromServer } = require('../utils/realtime');
 
 const router = express.Router();
+useIdParams(router, 'id', 'memberId');
+
+const PERMISSION_KEYS = Object.keys(DEFAULT_PERMISSIONS);
+
+// Keeps only known permission keys, coerced to booleans.
+const cleanPermissions = (input) => {
+  const out = {};
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return out;
+  PERMISSION_KEYS.forEach(key => {
+    if (input[key] !== undefined) out[key] = !!input[key];
+  });
+  return out;
+};
+
+// Non-owners may only hand out permissions they hold themselves (no privilege escalation).
+const canGrant = (server, actor, permissions) => {
+  if (actor.role === 'owner') return true;
+  const actorPermissions = getMemberPermissions(server, actor);
+  return Object.entries(permissions || {}).every(([key, value]) => !value || actorPermissions[key]);
+};
+
+const isOwnerRole = (role) => role.isSystem && role.name.toLowerCase() === 'owner';
 
 // GET /api/servers - Get user's servers
 router.get('/', auth, async (req, res) => {
@@ -25,7 +52,8 @@ router.get('/', auth, async (req, res) => {
 
 // POST /api/servers - Create a server
 router.post('/', auth, [
-  body('name').isLength({ min: 1, max: 64 }).trim()
+  body('name').isString().trim().isLength({ min: 1, max: 64 }),
+  body('description').optional().isString().isLength({ max: 256 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -33,12 +61,16 @@ router.post('/', auth, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, description, icon } = req.body;
+    const { name, description } = req.body;
+    const icon = req.body.icon ? cleanMediaUrl(req.body.icon) : '';
+    if (icon === null) {
+      return res.status(400).json({ error: 'Icon must be an https URL' });
+    }
 
     const server = new Server({
       name,
       description: description || '',
-      icon: icon || '',
+      icon,
       owner: req.userId,
       members: [{ user: req.userId, role: 'owner' }]
     });
@@ -122,14 +154,28 @@ router.patch('/:id', auth, async (req, res) => {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    const allowed = ['name', 'description', 'icon', 'banner'];
-    allowed.forEach(field => {
-      if (req.body[field] !== undefined) server[field] = req.body[field];
-    });
-
-    if (req.body.settings) {
-      Object.assign(server.settings, req.body.settings);
+    if (req.body.name !== undefined) {
+      const name = cleanString(req.body.name, 64);
+      if (!name) return res.status(400).json({ error: 'Invalid server name' });
+      server.name = name;
     }
+    if (req.body.description !== undefined) {
+      const description = cleanString(req.body.description, 256);
+      if (description === null) return res.status(400).json({ error: 'Invalid description' });
+      server.description = description;
+    }
+    for (const field of ['icon', 'banner']) {
+      if (req.body[field] === undefined) continue;
+      const url = cleanMediaUrl(req.body[field]);
+      if (url === null) return res.status(400).json({ error: `${field} must be an https URL` });
+      server[field] = url;
+    }
+
+    const settings = sanitizeServerSettings(req.body.settings);
+    if (settings.defaultChannel && !server.channels.some(c => sameId(c, settings.defaultChannel))) {
+      return res.status(400).json({ error: 'Default channel must belong to this server' });
+    }
+    Object.assign(server.settings, settings);
 
     await server.save();
 
@@ -165,10 +211,16 @@ router.delete('/:id', auth, async (req, res) => {
       { $pull: { servers: server._id } }
     );
 
-    // Delete all channels
+    // Delete all channels and everything that belonged to them
+    await Message.deleteMany({ server: server._id });
+    await Notification.deleteMany({ server: server._id });
+    await AuditLog.deleteMany({ server: server._id });
     await Channel.deleteMany({ server: server._id });
 
     await Server.findByIdAndDelete(server._id);
+
+    const io = req.app.get('io');
+    server.members.forEach(m => evictFromServer(io, m.user, server));
 
     res.json({ message: 'Server deleted' });
   } catch (error) {
@@ -190,8 +242,13 @@ router.post('/:id/join', auth, async (req, res) => {
     if (isMember) {
       return res.status(400).json({ error: 'Already a member' });
     }
+    // Joining by id is only for public servers; private ones need an invite code
+    if (!server.settings.isPublic) {
+      return res.status(403).json({ error: 'This server is private. Ask for an invite code.' });
+    }
 
     server.members.push({ user: req.userId, role: 'member' });
+    ensureServerRoles(server); // assigns the default Member role to the newcomer
     await server.save();
 
     await User.findByIdAndUpdate(req.userId, {
@@ -216,8 +273,13 @@ router.post('/:id/join', auth, async (req, res) => {
 // POST /api/servers/join/invite/:code - Join by invite code
 router.post('/join/invite/:code', auth, async (req, res) => {
   try {
-    const server = await Server.findOne({ inviteCode: req.params.code });
-    if (!server) {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,32}$/.test(code)) {
+      return res.status(404).json({ error: 'Invalid invite code' });
+    }
+
+    const server = await Server.findOne({ inviteCode: code });
+    if (!server || !server.settings.allowInvites) {
       return res.status(404).json({ error: 'Invalid invite code' });
     }
 
@@ -229,6 +291,7 @@ router.post('/join/invite/:code', auth, async (req, res) => {
     }
 
     server.members.push({ user: req.userId, role: 'member' });
+    ensureServerRoles(server); // assigns the default Member role to the newcomer
     await server.save();
 
     await User.findByIdAndUpdate(req.userId, {
@@ -265,6 +328,7 @@ router.post('/:id/leave', auth, async (req, res) => {
     });
 
     const io = req.app.get('io');
+    evictFromServer(io, req.userId, server);
     io.to(`server:${server._id}`).emit('server:member_left', {
       serverId: server._id,
       userId: req.userId
@@ -284,6 +348,9 @@ router.get('/:id/members', auth, async (req, res) => {
 
     if (!server) {
       return res.status(404).json({ error: 'Server not found' });
+    }
+    if (!server.members.some(m => m.user && sameId(m.user._id, req.userId))) {
+      return res.status(403).json({ error: 'Not a member of this server' });
     }
 
     const changed = ensureServerRoles(server);
@@ -337,9 +404,15 @@ router.post('/:id/roles', auth, async (req, res) => {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    const roleName = (req.body.name || '').trim();
+    const roleName = cleanString(req.body.name, 32);
     if (!roleName) {
-      return res.status(400).json({ error: 'Role name is required' });
+      return res.status(400).json({ error: 'Role name is required (max 32 characters)' });
+    }
+    if (req.body.color !== undefined && !isHexColor(req.body.color)) {
+      return res.status(400).json({ error: 'Color must be a hex value like #8b5cf6' });
+    }
+    if (server.roles.length >= 100) {
+      return res.status(400).json({ error: 'Role limit reached' });
     }
 
     const duplicate = server.roles.some(r => r.name.toLowerCase() === roleName.toLowerCase());
@@ -393,8 +466,20 @@ router.patch('/:id/roles/:roleId', auth, async (req, res) => {
       return res.status(404).json({ error: 'Role not found' });
     }
 
+    if (isOwnerRole(role) && member.role !== 'owner') {
+      return res.status(403).json({ error: 'Only the owner can edit the Owner role' });
+    }
+
+    const permissions = cleanPermissions(req.body.permissions);
+    if (!canGrant(server, member, permissions)) {
+      return res.status(403).json({ error: 'You cannot grant permissions you do not have' });
+    }
+    if (req.body.color !== undefined && !isHexColor(req.body.color)) {
+      return res.status(400).json({ error: 'Color must be a hex value like #8b5cf6' });
+    }
+
     if (!role.isSystem && req.body.name !== undefined) {
-      const nextName = req.body.name.trim();
+      const nextName = cleanString(req.body.name, 32);
       if (!nextName) {
         return res.status(400).json({ error: 'Role name cannot be empty' });
       }
@@ -406,14 +491,17 @@ router.patch('/:id/roles/:roleId', auth, async (req, res) => {
     }
 
     if (req.body.color !== undefined) role.color = req.body.color;
-    if (req.body.position !== undefined) role.position = Number(req.body.position) || 0;
+    if (req.body.position !== undefined) {
+      role.position = Math.min(Math.max(parseInt(req.body.position, 10) || 0, 0), 1000);
+    }
 
-    if (req.body.permissions && typeof req.body.permissions === 'object') {
+    if (Object.keys(permissions).length > 0) {
       role.permissions = {
         ...DEFAULT_PERMISSIONS,
-        ...role.permissions,
-        ...req.body.permissions
+        ...cleanPermissions(role.permissions),
+        ...permissions
       };
+      server.markModified('roles');
     }
 
     await server.save();
@@ -500,7 +588,19 @@ router.patch('/:id/members/:memberId/roles', auth, async (req, res) => {
 
     const roleIds = Array.isArray(req.body.roleIds) ? req.body.roleIds : [];
     const allowedRoleIds = new Set(server.roles.map(r => r.id));
-    target.roleIds = [...new Set(roleIds)].filter(id => allowedRoleIds.has(id));
+    const nextRoleIds = [...new Set(roleIds)].filter(id => allowedRoleIds.has(id));
+
+    // Non-owners can't hand out the Owner role or roles stronger than their own
+    const nextRoles = nextRoleIds.map(id => server.roles.find(r => r.id === id));
+    if (actor.role !== 'owner') {
+      if (nextRoles.some(isOwnerRole)) {
+        return res.status(403).json({ error: 'Only the owner can assign the Owner role' });
+      }
+      if (!nextRoles.every(role => canGrant(server, actor, role.permissions))) {
+        return res.status(403).json({ error: 'You cannot assign a role with permissions you do not have' });
+      }
+    }
+    target.roleIds = nextRoleIds;
 
     // Keep legacy field in sync for old code paths.
     const roleNames = target.roleIds

@@ -1,22 +1,18 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const { signToken } = require('../utils/token');
 
 const router = express.Router();
 
-// Generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
-};
-
 // POST /api/auth/register
 router.post('/register', [
-  body('username').isLength({ min: 3, max: 32 }).trim().escape()
+  body('username').isString().trim().isLength({ min: 3, max: 32 })
     .matches(/^[a-zA-Z0-9_]+$/).withMessage('Username can only contain letters, numbers, and underscores'),
   body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+  body('password').isString().isLength({ min: 8, max: 128 }).withMessage('Password must be 8-128 characters'),
+  body('displayName').optional().isString().trim().isLength({ max: 32 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -43,13 +39,14 @@ router.post('/register', [
     });
     await user.save();
 
-    const token = generateToken(user._id);
-
     res.status(201).json({
-      token,
+      token: signToken(user),
       user: user.toJSON()
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'This email or username is already in use' });
+    }
     console.error('Register error:', error);
     res.status(500).json({ error: 'Registration failed' });
   }
@@ -58,7 +55,7 @@ router.post('/register', [
 // POST /api/auth/login
 router.post('/login', [
   body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty()
+  body('password').isString().notEmpty().isLength({ max: 128 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -68,7 +65,7 @@ router.post('/login', [
 
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select('+tokenVersion');
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -82,10 +79,8 @@ router.post('/login', [
     user.status = 'online';
     await user.save();
 
-    const token = generateToken(user._id);
-
     res.json({
-      token,
+      token: signToken(user),
       user: user.toJSON()
     });
   } catch (error) {
@@ -109,10 +104,24 @@ router.get('/me', auth, async (req, res) => {
 // POST /api/auth/refresh
 router.post('/refresh', auth, async (req, res) => {
   try {
-    const token = generateToken(req.userId);
-    res.json({ token });
+    res.json({ token: signToken(req.user) });
   } catch (error) {
     res.status(500).json({ error: 'Token refresh failed' });
+  }
+});
+
+// POST /api/auth/logout-all - Revoke every token issued so far (e.g. after a leak).
+// Returns a fresh token so the calling device stays signed in.
+router.post('/logout-all', auth, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $inc: { tokenVersion: 1 } },
+      { new: true }
+    ).select('+tokenVersion');
+    res.json({ token: signToken(user) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to sign out other sessions' });
   }
 });
 

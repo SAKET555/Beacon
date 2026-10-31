@@ -106,12 +106,13 @@ Required values in `backend/.env`:
 | Variable | Description |
 |---|---|
 | `MONGODB_URI` | MongoDB Atlas connection string |
-| `JWT_SECRET` | Any random secret string (e.g. `my-secret-key-123`) |
+| `JWT_SECRET` | At least 32 random characters. Generate one with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
 | `CLOUDINARY_CLOUD_NAME` | From Cloudinary dashboard |
 | `CLOUDINARY_API_KEY` | From Cloudinary dashboard |
 | `CLOUDINARY_API_SECRET` | From Cloudinary dashboard |
-| `CLIENT_URL` | `http://localhost:5173` for local dev |
+| `CLIENT_URL` | Frontend origin allowed by CORS. `http://localhost:5173` for local dev; required in production. Separate several with commas |
 | `PORT` | `5000` (default) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Optional, for push notifications (`npx web-push generate-vapid-keys`) |
 
 ### Step 2: Start the Backend
 ```bash
@@ -147,11 +148,11 @@ VITE_SOCKET_URL=http://localhost:5000
 ### Test Real-Time Messaging
 
 1. Open `http://localhost:5173` in **Browser Tab 1**
-2. Click "Create one" → Register **User A** (e.g. `alice`, `alice@test.com`, `password123`)
+2. Click "Create one" → Register **User A** (e.g. `alice`, `alice@test.com`, `password1234`)
 3. Create a server → "My Server"
 4. Note the invite code from the server menu → "Invite People"
 5. Open `http://localhost:5173` in **Browser Tab 2** (incognito recommended)
-6. Register **User B** (e.g. `bob`, `bob@test.com`, `password123`)
+6. Register **User B** (e.g. `bob`, `bob@test.com`, `password1234`)
 7. Click "+" → Join Server → paste invite code
 8. Both users are now in the same server
 9. Send messages — they appear in real-time on both tabs!
@@ -226,7 +227,7 @@ VITE_SOCKET_URL=http://localhost:5000
 4. Build command: `npm install`
 5. Start command: `npm start`
 6. Add all environment variables from `.env`
-7. Set `CLIENT_URL` to your Vercel frontend URL
+7. Set `CLIENT_URL` to your Vercel frontend URL (required: the server refuses to start in production without it)
 8. Deploy!
 
 ### MongoDB Atlas Setup
@@ -249,7 +250,7 @@ VITE_SOCKET_URL=http://localhost:5000
 |---|---|
 | `MongoDB connection error` | Check MONGODB_URI, ensure IP whitelisted in Atlas |
 | `401 Unauthorized` | Token expired, re-login |
-| `CORS error` | Ensure CLIENT_URL matches frontend URL exactly |
+| `CORS error` | Ensure CLIENT_URL matches frontend URL exactly (no trailing slash; comma-separate multiple URLs) |
 | `Upload failed` | Check Cloudinary credentials |
 | `Socket connection error` | Ensure VITE_SOCKET_URL points to backend |
 | `Cannot find module` | Run `npm install` in the respective directory |

@@ -20,7 +20,13 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true,
-    minlength: 6
+    minlength: 8
+  },
+  // Bumped to revoke all existing JWTs (see utils/token.js)
+  tokenVersion: {
+    type: Number,
+    default: 0,
+    select: false
   },
   displayName: {
     type: String,
@@ -98,6 +104,7 @@ userSchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.password;
   delete obj.twoFactorSecret;
+  delete obj.tokenVersion;
   return obj;
 };
 

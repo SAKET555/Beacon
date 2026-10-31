@@ -1,17 +1,28 @@
-const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Server = require('../models/Server');
+const { authenticateToken } = require('../utils/token');
+const { isId } = require('../utils/http');
+const { getServerAccess, getChannelAccess } = require('../utils/access');
+const { broadcastPresence } = require('../utils/realtime');
 
 const onlineUsers = new Map(); // userId -> Set of socketIds
+
+// Wraps a handler so a bad payload or a thrown error can't crash the process.
+const safe = (handler) => async (payload, ...rest) => {
+  try {
+    await handler(payload && typeof payload === 'object' ? payload : {}, ...rest);
+  } catch (error) {
+    console.error('Socket handler error:', error.message);
+  }
+};
 
 const setupSocket = (io) => {
   // Auth middleware for socket
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth.token;
+      const token = socket.handshake.auth?.token;
       if (!token) return next(new Error('Authentication required'));
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.userId).select('-password -twoFactorSecret');
-      if (!user) return next(new Error('User not found'));
+      const user = await authenticateToken(token);
       socket.userId = user._id.toString();
       socket.user = user;
       next();
@@ -30,32 +41,52 @@ const setupSocket = (io) => {
     }
     onlineUsers.get(userId).add(socket.id);
 
-    // Update user status
-    await User.findByIdAndUpdate(userId, { status: 'online' });
-
     // Join personal room for DMs/notifications
     socket.join(`user:${userId}`);
 
-    // Broadcast online status
-    io.emit('presence:changed', { userId, status: 'online' });
+    try {
+      // Join rooms for every server the user really belongs to (presence + server events)
+      const servers = await Server.find({ 'members.user': userId }).select('_id');
+      servers.forEach(s => socket.join(`server:${s._id}`));
 
-    // Join server rooms
-    socket.on('server:join', ({ serverId }) => {
-      socket.join(`server:${serverId}`);
-    });
+      await User.findByIdAndUpdate(userId, { status: 'online' });
+      await broadcastPresence(io, userId, 'online');
+    } catch (error) {
+      console.error('Socket connection setup failed:', error.message);
+    }
 
-    // Join channel room
-    socket.on('channel:join', ({ channelId }) => {
-      socket.join(`channel:${channelId}`);
-    });
+    // Join server rooms (membership checked)
+    socket.on('server:join', safe(async ({ serverId }) => {
+      if (!isId(serverId)) return;
+      const access = await getServerAccess(serverId, userId);
+      if (!access.error) socket.join(`server:${serverId}`);
+    }));
 
-    socket.on('channel:leave', ({ channelId }) => {
-      socket.leave(`channel:${channelId}`);
-    });
+    // Join channel room (membership / DM participation checked)
+    socket.on('channel:join', safe(async ({ channelId }) => {
+      if (!isId(channelId)) return;
+      const access = await getChannelAccess(channelId, userId);
+      if (!access.error) socket.join(`channel:${channelId}`);
+    }));
 
-    // Call signaling
-    socket.on('call:join', ({ channelId }) => {
+    socket.on('channel:leave', safe(({ channelId }) => {
+      if (isId(channelId)) socket.leave(`channel:${channelId}`);
+    }));
+
+    // Call signaling: only sockets that passed call:join may signal into a call room
+    const inCall = (channelId) => isId(channelId) && socket.data.callRoom === `call:${channelId}`;
+
+    socket.on('call:join', safe(async ({ channelId }) => {
+      if (!isId(channelId)) return;
+      // DM channels skip the permission check; server channels need connectVoice
+      const access = await getChannelAccess(channelId, userId, 'connectVoice');
+      if (access.error) return;
+
       const room = `call:${channelId}`;
+      if (socket.data.callRoom && socket.data.callRoom !== room) {
+        socket.to(socket.data.callRoom).emit('call:user-left', { userId });
+        socket.leave(socket.data.callRoom);
+      }
       socket.join(room);
       socket.to(room).emit('call:user-joined', {
         userId,
@@ -66,55 +97,55 @@ const setupSocket = (io) => {
         }
       });
       socket.data.callRoom = room;
-    });
+    }));
 
-    socket.on('call:offer', ({ channelId, targetUserId, sdp }) => {
-      const room = `call:${channelId}`;
-      socket.to(room).emit('call:offer', { userId, sdp, targetUserId });
-    });
+    socket.on('call:offer', safe(({ channelId, targetUserId, sdp }) => {
+      if (!inCall(channelId)) return;
+      socket.to(`call:${channelId}`).emit('call:offer', { userId, sdp, targetUserId });
+    }));
 
-    socket.on('call:answer', ({ channelId, targetUserId, sdp }) => {
-      const room = `call:${channelId}`;
-      socket.to(room).emit('call:answer', { userId, sdp, targetUserId });
-    });
+    socket.on('call:answer', safe(({ channelId, targetUserId, sdp }) => {
+      if (!inCall(channelId)) return;
+      socket.to(`call:${channelId}`).emit('call:answer', { userId, sdp, targetUserId });
+    }));
 
-    socket.on('call:ice', ({ channelId, targetUserId, candidate }) => {
-      const room = `call:${channelId}`;
-      socket.to(room).emit('call:ice', { userId, candidate, targetUserId });
-    });
+    socket.on('call:ice', safe(({ channelId, targetUserId, candidate }) => {
+      if (!inCall(channelId)) return;
+      socket.to(`call:${channelId}`).emit('call:ice', { userId, candidate, targetUserId });
+    }));
 
-    socket.on('call:state', ({ channelId, state }) => {
-      const room = `call:${channelId}`;
-      socket.to(room).emit('call:state', { userId, state });
-    });
+    socket.on('call:state', safe(({ channelId, state }) => {
+      if (!inCall(channelId)) return;
+      socket.to(`call:${channelId}`).emit('call:state', { userId, state });
+    }));
 
-    socket.on('call:leave', ({ channelId }) => {
+    socket.on('call:leave', safe(({ channelId }) => {
+      if (!inCall(channelId)) return;
       const room = `call:${channelId}`;
       socket.leave(room);
       socket.to(room).emit('call:user-left', { userId });
-      if (socket.data.callRoom === room) socket.data.callRoom = null;
-    });
+      socket.data.callRoom = null;
+    }));
 
-    // Typing indicators
-    socket.on('typing:start', ({ channelId }) => {
-      socket.to(`channel:${channelId}`).emit('typing:update', {
-        userId, username: socket.user.username, channelId, isTyping: true
+    // Typing indicators: only for channels this socket has joined
+    const emitTyping = (channelId, isTyping) => {
+      const room = `channel:${channelId}`;
+      if (!isId(channelId) || !socket.rooms.has(room)) return;
+      socket.to(room).emit('typing:update', {
+        userId, username: socket.user.username, channelId, isTyping
       });
-    });
+    };
 
-    socket.on('typing:stop', ({ channelId }) => {
-      socket.to(`channel:${channelId}`).emit('typing:update', {
-        userId, username: socket.user.username, channelId, isTyping: false
-      });
-    });
+    socket.on('typing:start', safe(({ channelId }) => emitTyping(channelId, true)));
+    socket.on('typing:stop', safe(({ channelId }) => emitTyping(channelId, false)));
 
     // Status update
-    socket.on('presence:update', async ({ status }) => {
+    socket.on('presence:update', safe(async ({ status }) => {
       if (['online', 'away', 'dnd', 'offline'].includes(status)) {
         await User.findByIdAndUpdate(userId, { status });
-        io.emit('presence:changed', { userId, status });
+        await broadcastPresence(io, userId, status);
       }
-    });
+    }));
 
     // Get online users
     socket.on('presence:get', (callback) => {
@@ -126,7 +157,7 @@ const setupSocket = (io) => {
     });
 
     // Disconnect
-    socket.on('disconnect', async () => {
+    socket.on('disconnect', safe(async () => {
       console.log(`💤 User disconnected: ${socket.user.username}`);
       if (socket.data.callRoom) {
         socket.to(socket.data.callRoom).emit('call:user-left', { userId });
@@ -137,10 +168,10 @@ const setupSocket = (io) => {
         if (userSockets.size === 0) {
           onlineUsers.delete(userId);
           await User.findByIdAndUpdate(userId, { status: 'offline' });
-          io.emit('presence:changed', { userId, status: 'offline' });
+          await broadcastPresence(io, userId, 'offline');
         }
       }
-    });
+    }));
   });
 };
 
