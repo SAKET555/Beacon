@@ -31,7 +31,9 @@ const setupSocket = (io) => {
     }
   });
 
-  io.on('connection', async (socket) => {
+  // Synchronous on purpose: every socket.on below must be registered in the same
+  // tick as the connection, or events the client emits right away are dropped.
+  io.on('connection', (socket) => {
     const userId = socket.userId;
     console.log(`⚡ User connected: ${socket.user.username} (${userId})`);
 
@@ -44,16 +46,19 @@ const setupSocket = (io) => {
     // Join personal room for DMs/notifications
     socket.join(`user:${userId}`);
 
-    try {
-      // Join rooms for every server the user really belongs to (presence + server events)
-      const servers = await Server.find({ 'members.user': userId }).select('_id');
-      servers.forEach(s => socket.join(`server:${s._id}`));
+    // Async setup runs in the background (not awaited, see note above)
+    (async () => {
+      try {
+        // Join rooms for every server the user really belongs to (presence + server events)
+        const servers = await Server.find({ 'members.user': userId }).select('_id');
+        servers.forEach(s => socket.join(`server:${s._id}`));
 
-      await User.findByIdAndUpdate(userId, { status: 'online' });
-      await broadcastPresence(io, userId, 'online');
-    } catch (error) {
-      console.error('Socket connection setup failed:', error.message);
-    }
+        await User.findByIdAndUpdate(userId, { status: 'online' });
+        await broadcastPresence(io, userId, 'online');
+      } catch (error) {
+        console.error('Socket connection setup failed:', error.message);
+      }
+    })();
 
     // Join server rooms (membership checked)
     socket.on('server:join', safe(async ({ serverId }) => {
