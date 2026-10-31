@@ -1,6 +1,6 @@
 # 🏰 Royal Beacon
 
-A fully functional, production-ready, real-time messaging platform combining the best of Discord, WhatsApp, and Element. Built with React, Node.js, Socket.IO, and MongoDB.
+A fully functional, production-ready, real-time messaging platform combining the best of Discord, WhatsApp, and Element. Built with React, Python (FastAPI + python-socketio), Socket.IO, and MongoDB.
 
 ![Discord-inspired UI](https://img.shields.io/badge/UI-Discord%20Inspired-5865F2) ![Real-time](https://img.shields.io/badge/Real--time-Socket.IO-010101) ![MongoDB](https://img.shields.io/badge/Database-MongoDB-47A248)
 
@@ -10,37 +10,23 @@ A fully functional, production-ready, real-time messaging platform combining the
 
 ```
 BEACON/
-├── backend/
-│   ├── config/
-│   │   ├── db.js              # MongoDB connection
-│   │   └── cloudinary.js      # Cloudinary config
-│   ├── middleware/
-│   │   ├── auth.js            # JWT authentication
-│   │   ├── roleCheck.js       # Role-based access control
-│   │   └── upload.js          # Multer file upload
-│   ├── models/
-│   │   ├── User.js            # User schema
-│   │   ├── Server.js          # Server schema
-│   │   ├── Channel.js         # Channel schema
-│   │   ├── Message.js         # Message schema
-│   │   ├── Notification.js    # Notification schema
-│   │   └── AuditLog.js        # Admin audit log
-│   ├── routes/
-│   │   ├── auth.js            # Register, login, me
-│   │   ├── users.js           # Profile, DMs, search
-│   │   ├── servers.js         # Server CRUD, join/leave
-│   │   ├── channels.js        # Channel CRUD, pins
-│   │   ├── messages.js        # Messages, reactions, threads
-│   │   ├── upload.js          # File upload to Cloudinary
-│   │   ├── admin.js           # Admin dashboard, audit log
-│   │   └── notifications.js   # Notification management
-│   ├── socket/
-│   │   └── index.js           # Socket.IO event handlers
-│   ├── utils/
-│   │   └── scheduled.js       # Scheduled message cron
-│   ├── server.js              # Express entry point
-│   ├── .env.example           # Environment variables template
-│   └── package.json
+├── backend/                     # Python (FastAPI + python-socketio)
+│   ├── app/
+│   │   ├── main.py                # App entry: middleware, rate limits, routers, Socket.IO
+│   │   ├── config.py              # Env loading + validation, CORS origins
+│   │   ├── db.py                  # MongoDB (Motor) + indexes
+│   │   ├── security.py            # bcrypt passwords, JWT auth
+│   │   ├── permissions.py         # Roles and permissions
+│   │   ├── access.py              # Membership / DM access checks
+│   │   ├── sockets.py             # Socket.IO events (presence, typing, calls)
+│   │   ├── calls.py               # Call ringing + call history
+│   │   ├── link_preview.py        # SSRF-safe link previews
+│   │   ├── scheduled.py           # Scheduled message delivery
+│   │   └── routes/                # auth, users, servers, channels, messages,
+│   │                              # upload, admin, notifications, calls
+│   ├── tests/                     # pytest security tests
+│   ├── requirements.txt
+│   └── .env.example               # Environment variables template
 ├── frontend/
 │   ├── public/
 │   │   └── beacon.svg         # App favicon
@@ -90,7 +76,7 @@ BEACON/
 ## 🚀 Local Setup
 
 ### Prerequisites
-- Node.js 18+ installed
+- Python 3.12+ (backend) and Node.js 18+ (frontend only)
 - MongoDB Atlas account (free tier)
 - Cloudinary account (free tier)
 
@@ -106,25 +92,29 @@ Required values in `backend/.env`:
 | Variable | Description |
 |---|---|
 | `MONGODB_URI` | MongoDB Atlas connection string |
-| `JWT_SECRET` | At least 32 random characters. Generate one with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+| `JWT_SECRET` | At least 32 random characters. Generate one with `python -c "import secrets; print(secrets.token_hex(48))"` |
 | `CLOUDINARY_CLOUD_NAME` | From Cloudinary dashboard |
 | `CLOUDINARY_API_KEY` | From Cloudinary dashboard |
 | `CLOUDINARY_API_SECRET` | From Cloudinary dashboard |
 | `CLIENT_URL` | Frontend origin allowed by CORS. `http://localhost:5173` for local dev; required in production. Separate several with commas |
 | `PORT` | `5000` (default) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Optional, for push notifications (`npx web-push generate-vapid-keys`) |
+| `TURN_URLS` + `TURN_SECRET` (or `TURN_USERNAME`/`TURN_CREDENTIAL`) | Optional but recommended: a TURN relay so calls connect on strict networks (mobile data, office Wi-Fi) |
 
 ### Step 2: Start the Backend
 ```bash
 cd backend
-npm install     # already done if you followed setup
-npm run dev
+python -m venv .venv
+.venv/Scripts/activate        # macOS/Linux: source .venv/bin/activate
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 5000
 ```
 You should see:
 ```
-🏰 Royal Beacon server running on port 5000
-📦 MongoDB connected: cluster0-shard-xxxxx.mongodb.net
+INFO MongoDB connected
+INFO Beacon (Python) running on port 5000
 ```
+Run the tests with `pytest`.
 
 ### Step 3: Start the Frontend
 ```bash
@@ -218,17 +208,27 @@ VITE_SOCKET_URL=http://localhost:5000
 4. Add environment variables:
    - `VITE_API_URL=https://your-backend.onrender.com`
    - `VITE_SOCKET_URL=https://your-backend.onrender.com`
-5. Deploy!
+   - `VITE_VAPID_PUBLIC_KEY=<same as the backend VAPID_PUBLIC_KEY>` (optional, for push notifications)
+5. Deploy! (`frontend/vercel.json` already handles page routing, so refreshing `/app` works)
+
+> The backend cannot run on Vercel: it needs a long-running server for Socket.IO (chat, presence, calls) and the scheduled-message loop. Host it on Render (below), Railway or Fly.io.
 
 ### Backend → Render
+**Easiest:** Render dashboard → **New → Blueprint** → pick this repo. `render.yaml` sets up the service (Python, build/start commands, health check) and asks for your secrets once. Then set `CLIENT_URL` to your Vercel URL.
+
+**Or manually:**
 1. Go to [render.com](https://render.com) → New Web Service
 2. Connect GitHub repo
 3. Set root directory: `backend`
-4. Build command: `npm install`
-5. Start command: `npm start`
-6. Add all environment variables from `.env`
-7. Set `CLIENT_URL` to your Vercel frontend URL (required: the server refuses to start in production without it)
-8. Deploy!
+4. Runtime: **Python 3** (the `backend/.python-version` file pins 3.12)
+5. Build command: `pip install -r requirements.txt`
+6. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers` (and env var `FORWARDED_ALLOW_IPS=*`)
+7. Add all environment variables from `.env`
+8. Set `CLIENT_URL` to your Vercel frontend URL (required: the server refuses to start in production without it)
+9. Also set `NODE_ENV=production`
+10. Deploy!
+
+> Render's free plan sleeps after 15 minutes without traffic, so the first request after a pause can take ~50 seconds. A paid instance stays awake.
 
 ### MongoDB Atlas Setup
 1. Go to [cloud.mongodb.com](https://cloud.mongodb.com)
@@ -253,7 +253,8 @@ VITE_SOCKET_URL=http://localhost:5000
 | `CORS error` | Ensure CLIENT_URL matches frontend URL exactly (no trailing slash; comma-separate multiple URLs) |
 | `Upload failed` | Check Cloudinary credentials |
 | `Socket connection error` | Ensure VITE_SOCKET_URL points to backend |
-| `Cannot find module` | Run `npm install` in the respective directory |
+| `Cannot find module` | Run `npm install` in `frontend` |
+| `ModuleNotFoundError` | Activate the venv and run `pip install -r requirements.txt` in `backend` |
 
 ---
 

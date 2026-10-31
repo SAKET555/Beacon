@@ -1,0 +1,42 @@
+# Render Blueprint for the Beacon backend (Python).
+# Render dashboard -> New -> Blueprint -> pick this repo. Values marked
+# "sync: false" are asked for once in the dashboard and never stored in git.
+services:
+  - type: web
+    name: beacon-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker on purpose: presence, call rooms and rate limits live in memory.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: NODE_ENV
+        value: production
+      # Trust Render's proxy for the real client IP (used by rate limiting)
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false

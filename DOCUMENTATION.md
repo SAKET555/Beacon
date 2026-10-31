@@ -3,19 +3,19 @@
 This document explains how the current codebase works in plain language. It focuses on features, architecture, computer network concepts, data structures and algorithms (DSA), and the tools and libraries used. It is based strictly on the present repository.
 
 ## 1) What this app is
-Royal Beacon is a real-time messaging platform with servers, channels, direct messages, reactions, pins, threads, file uploads, push notifications, and voice/video calls. It has a React frontend and a Node.js/Express backend with Socket.IO and MongoDB.
+Royal Beacon is a real-time messaging platform with servers, channels, direct messages, reactions, pins, threads, file uploads, push notifications, and voice/video calls. It has a React frontend and a Python backend (FastAPI + python-socketio) with Socket.IO and MongoDB.
 
 ## 2) Architecture overview
 High-level view:
 
 - Frontend: React + Vite + Tailwind CSS, state managed with Zustand.
-- Backend: Express API + Socket.IO server.
-- Database: MongoDB using Mongoose models.
+- Backend: FastAPI (REST) + python-socketio (real-time), served together by uvicorn on one port.
+- Database: MongoDB via Motor (async driver). Document shapes are the same as the original Mongoose models.
 - Real-time: Socket.IO for chat events, presence, and call signaling.
 - Media: WebRTC peer-to-peer for calls (audio/video).
 - Storage: Cloudinary for uploads (attachments, avatars, server icons).
 - Push: Web Push (VAPID keys) for notifications.
-- Background tasks: node-cron for scheduled messages.
+- Background tasks: an asyncio loop delivers scheduled messages every 30 seconds.
 
 ### 2.1) Basic diagram
 
@@ -24,14 +24,14 @@ Browser (React)
   |  HTTP (REST) /api/*
   |  WebSocket (Socket.IO) events
   v
-Node.js (Express + Socket.IO)
-  |  Mongoose
+Python (FastAPI + python-socketio, uvicorn)
+  |  Motor
   v
 MongoDB (royal-beacon database)
 
 Uploads -> Cloudinary
 Push -> Web Push service worker (sw.js)
-Calls -> WebRTC peer-to-peer (STUN only)
+Calls -> WebRTC peer-to-peer (STUN, plus TURN relay when configured)
 ```
 
 ### 2.2) Key runtime roles
@@ -85,7 +85,7 @@ Calls -> WebRTC peer-to-peer (STUN only)
 
 ### 3.8) File uploads
 - Files are uploaded via `/api/upload` (or avatar/server icon endpoints).
-- Server validates mime types and size via multer.
+- Server validates mime types and size and checks the real file signature, so a renamed file is rejected.
 - Files are stored in Cloudinary and URLs are returned.
 - Messages reference attachment URLs.
 
@@ -104,15 +104,17 @@ Calls -> WebRTC peer-to-peer (STUN only)
 - When a user joins a call, the server announces it to the room.
 - Peers exchange SDP offers/answers and ICE candidates.
 - Media flows directly between peers (no media server).
-- A public STUN server is used. There is no TURN, so some networks may fail.
+- Public STUN servers are used. A TURN relay is used when TURN_URLS is configured (GET /api/calls/ice-servers); without one, some strict networks may fail.
+- Starting a call rings everyone else who can see the channel (call:incoming), and calls are logged (GET /api/calls/history/:channelId).
+- Participants can share their screen during video calls.
 
 ## 4) Backend structure and responsibilities
 
-### 4.1) Entry point: server.js
-- Sets up Express, security middleware, JSON parsing, and CORS.
-- Attaches Socket.IO to the HTTP server.
-- Mounts all API routes.
-- Starts cron job for scheduled messages.
+### 4.1) Entry point: app/main.py
+- Validates environment variables (refuses to start insecurely in production).
+- Sets up CORS (only CLIENT_URL origins), rate limits, security headers and error handling.
+- Mounts all API routers and wraps them together with the Socket.IO server.
+- Starts the scheduled-message loop.
 
 ### 4.2) Routes
 - `/api/auth`: register, login, get current user, refresh token.
@@ -121,13 +123,15 @@ Calls -> WebRTC peer-to-peer (STUN only)
 - `/api/channels`: CRUD, pins, read receipts.
 - `/api/messages`: CRUD, search, threads.
 - `/api/upload`: attachments, avatars, server icons.
-- `/api/admin`: stats, roles, audit log, settings.
+- `/api/admin`: stats, members, kick, bans (ban/unban/list), audit log, settings.
+- `/api/calls`: ICE/TURN configuration, call history.
 - `/api/notifications`: list, read, subscribe/unsubscribe push.
 
-### 4.3) Middleware
-- `auth`: checks JWT, loads user.
-- `roleCheck`: enforces role-based permissions for server actions.
-- `upload`: multer in-memory storage with allowed MIME types and size limit.
+### 4.3) Shared helpers
+- `security.current_user`: checks the JWT (and its revocation version), loads the user.
+- `access`: server membership / DM participation checks used by every route and socket event.
+- `permissions`: role-based permissions, with protection against granting permissions you lack.
+- Uploads: type allow-list, size limits, and real file-signature checks before sending to Cloudinary.
 
 ### 4.4) Models
 - User: auth fields, profile, status, preferences, starred messages.
@@ -255,8 +259,8 @@ Calls -> WebRTC peer-to-peer (STUN only)
 - Socket.IO and REST should run over HTTPS/WSS.
 
 ### 7.7) Rate limiting and security headers
-- `express-rate-limit` limits API traffic.
-- `helmet` sets safe HTTP headers.
+- An in-memory sliding-window limiter limits API traffic, with stricter limits on login and register.
+- Security headers (nosniff, frame options, CSP, HSTS in production) are added to every response.
 
 ## 8) DSA (data structures and algorithms) in use
 
@@ -282,22 +286,22 @@ Calls -> WebRTC peer-to-peer (STUN only)
 - Link preview extractor finds HTTP/HTTPS links.
 
 ### 8.6) Time-based algorithms
-- Cron job runs every minute to publish scheduled messages.
+- A background loop runs every 30 seconds to publish scheduled messages (claimed atomically so none is sent twice).
+- Slow mode compares the time since a user's last message with the channel's slow-mode window.
 - Read receipts use timestamps to compare against message time.
 
 ## 9) Tools and libraries used
 
 ### 9.1) Backend
-- Node.js + Express
-- MongoDB + Mongoose
-- Socket.IO
-- JWT for auth
+- Python 3.12, FastAPI, uvicorn
+- MongoDB + Motor
+- python-socketio
+- PyJWT for auth
 - bcrypt for password hashing
-- multer for uploads
+- aiohttp for link previews
 - cloudinary for storage
-- node-cron for scheduled messages
-- web-push for push notifications
-- helmet, cors, morgan, express-rate-limit
+- pywebpush for push notifications
+- pytest for tests
 
 ### 9.2) Frontend
 - React + React Router

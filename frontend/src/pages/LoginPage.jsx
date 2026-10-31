@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import toast from 'react-hot-toast';
+import Logo from '../components/Logo';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -31,9 +32,7 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         <div className="glass rounded-2xl p-8 border border-beacon-border shadow-2xl">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-beacon-accent to-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-beacon-accent/25">
-              <span className="text-2xl font-extrabold text-white">B</span>
-            </div>
+            <Logo className="w-16 h-16 mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-text-primary">Welcome Back</h1>
             <p className="text-text-muted mt-1">Sign in to Royal Beacon</p>
           </div>

@@ -21,8 +21,12 @@ import StarredMessagesModal from '../components/modals/StarredMessagesModal';
 import ThreadModal from '../components/modals/ThreadModal';
 import FilePreviewModal from '../components/modals/FilePreviewModal';
 import CallModal from '../components/modals/CallModal';
+import IncomingCall from '../components/IncomingCall';
+import api from '../services/api';
+import toast from 'react-hot-toast';
 import { registerPush } from '../services/push';
 import { Menu } from 'lucide-react';
+import Logo from '../components/Logo';
 
 export default function MainLayout() {
   const { initSocket, user, setLocalStatus, updateStatus } = useAuthStore();
@@ -32,8 +36,9 @@ export default function MainLayout() {
   const { addNotification } = useNotificationStore();
   const { showMemberPanel, showCreateServer, showCreateChannel, showInviteModal,
     showSearchModal, showUserSettings, showServerSettings, showPinnedMessages,
-    showStarredMessages, threadParent, callRoom, callMode, mobileSidebarOpen, toggleMobileSidebar } = useUIStore();
+    showStarredMessages, threadParent, callRoom, callMode, mobileSidebarOpen, toggleMobileSidebar, openCall } = useUIStore();
   const [onlineUsers, setOnlineUsers] = useState({});
+  const [incomingCall, setIncomingCall] = useState(null);
   const idleTimerRef = useRef(null);
   const lastStatusRef = useRef(user?.status || 'online');
 
@@ -86,6 +91,39 @@ export default function MainLayout() {
       fetchServers();
     });
 
+    // Live server/channel changes (handlers read fresh state via getState to avoid stale closures)
+    const isCurrentServer = (serverId) => useServerStore.getState().currentServer?._id === serverId;
+    socket.on('server:deleted', ({ serverId }) => {
+      if (isCurrentServer(serverId)) {
+        setCurrentServer(null);
+        setCurrentChannel(null);
+        toast('This server was deleted');
+      }
+      fetchServers();
+    });
+    socket.on('server:updated', ({ serverId }) => {
+      if (isCurrentServer(serverId)) fetchServer(serverId);
+      fetchServers();
+    });
+    const refreshMembers = ({ serverId }) => { if (isCurrentServer(serverId)) fetchServer(serverId); };
+    socket.on('server:member_joined', refreshMembers);
+    socket.on('server:member_left', refreshMembers);
+    socket.on('channel:updated', ({ channel }) => {
+      useChannelStore.setState(state => ({
+        channels: state.channels.map(c => (c._id === channel._id ? { ...c, ...channel } : c)),
+        currentChannel: state.currentChannel?._id === channel._id ? { ...state.currentChannel, ...channel } : state.currentChannel
+      }));
+    });
+
+    // Calls: ring when someone starts a call in a channel you can see
+    socket.on('call:incoming', (call) => {
+      if (useUIStore.getState().callRoom === call.channelId) return;
+      setIncomingCall(call);
+    });
+    socket.on('call:ended', ({ channelId }) => {
+      setIncomingCall(current => (current?.channelId === channelId ? null : current));
+    });
+
     return () => {
       socket.off('presence:changed');
       socket.off('message:new');
@@ -98,6 +136,8 @@ export default function MainLayout() {
       socket.off('notification:new');
       socket.off('channel:read');
       socket.off('server:kicked');
+      ['server:deleted', 'server:updated', 'server:member_joined', 'server:member_left', 'channel:updated',
+        'call:incoming', 'call:ended'].forEach(evt => socket.off(evt));
     };
   }, [user?._id]);
 
@@ -177,6 +217,23 @@ export default function MainLayout() {
     }
   }, [currentChannel?._id]);
 
+  const acceptIncomingCall = async () => {
+    const call = incomingCall;
+    setIncomingCall(null);
+    if (!call) return;
+    try {
+      if (call.serverId && useServerStore.getState().currentServer?._id !== call.serverId) {
+        const full = await fetchServer(call.serverId);
+        if (full) setCurrentServer(full);
+      }
+      const { data } = await api.get(`/channels/${call.channelId}/details`);
+      setCurrentChannel(data.channel);
+      openCall(call.channelId, call.mode);
+    } catch (error) {
+      toast.error('This call is no longer available');
+    }
+  };
+
   const handleSelectServer = async (server) => {
     setCurrentChannel(null);
     const full = await fetchServer(server._id);
@@ -219,9 +276,7 @@ export default function MainLayout() {
         ) : (
           <div className="flex-1 flex items-center justify-center bg-beacon-chat">
             <div className="text-center animate-fade-in">
-              <div className="w-24 h-24 bg-gradient-to-br from-beacon-accent to-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-beacon-accent/30">
-                <span className="text-4xl font-extrabold text-white">B</span>
-              </div>
+              <Logo className="w-24 h-24 mx-auto mb-6" />
               <h2 className="text-2xl font-bold text-text-primary mb-2">Royal Beacon</h2>
               <p className="text-text-muted max-w-sm">
                 {servers.length === 0
@@ -256,6 +311,9 @@ export default function MainLayout() {
         <CallModal channel={currentChannel} user={user} mode={callMode} />
       )}
       <FilePreviewModal />
+      {incomingCall && (
+        <IncomingCall call={incomingCall} onAccept={acceptIncomingCall} onDecline={() => setIncomingCall(null)} />
+      )}
     </div>
   );
 }

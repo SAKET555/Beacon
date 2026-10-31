@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Camera, Loader2, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
+import { X, Camera, Loader2, Settings2, ShieldCheck, UsersRound, Gavel } from 'lucide-react';
 import useUIStore from '../../store/uiStore';
 import useServerStore from '../../store/serverStore';
 import api from '../../services/api';
@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { getInitials } from '../../utils/helpers';
 import RoleManagementPage from './RoleManagementPage';
 import PermissionManagementPage from './PermissionManagementPage';
+import ModerationPage from './ModerationPage';
 
 export default function ServerSettingsModal({ server }) {
   const { toggleServerSettings } = useUIStore();
@@ -80,6 +81,12 @@ export default function ServerSettingsModal({ server }) {
             >
               <ShieldCheck size={16} /> Permissions
             </button>
+            <button
+              onClick={() => setActivePage('moderation')}
+              className={`sidebar-item w-full text-sm ${activePage === 'moderation' ? 'active' : ''}`}
+            >
+              <Gavel size={16} /> Moderation
+            </button>
           </aside>
 
           <section className="p-5 overflow-y-auto">
@@ -121,6 +128,10 @@ export default function ServerSettingsModal({ server }) {
                 onDeleteRole={(roleId) => deleteServerRole(server._id, roleId)}
                 onUpdateMemberRoles={(memberId, roleIds) => updateMemberRoles(server._id, memberId, roleIds)}
               />
+            )}
+
+            {activePage === 'moderation' && (
+              <ModerationPage server={server} permissions={myPermissions} />
             )}
 
             {activePage === 'permissions' && (
